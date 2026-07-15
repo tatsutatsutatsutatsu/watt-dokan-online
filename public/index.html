@@ -56,6 +56,20 @@
   .rulesbox b{color:var(--safety)}
   .rulesbox .kw{color:var(--copper)}
 
+  /* ---- デッキビルダー ---- */
+  .deckhead{display:flex;align-items:center;justify-content:space-between;font-size:.8rem}
+  .deckhead button{padding:6px 8px;font-size:.65rem}
+  .deckslots{display:flex;gap:6px}
+  .deckslots button{flex:1;padding:8px 4px;font-size:.68rem}
+  .deckslotbtn.active-slot{background:var(--safety);color:#14161a}
+  .decksummary{font-size:.68rem;text-align:center;line-height:1.6;background:#0e1013;border-radius:6px;padding:6px}
+  .decksummary b{color:var(--safety)}
+  .decklist{max-height:44vh;overflow-y:auto;border:2px solid var(--line);border-radius:8px;padding:2px 6px;background:var(--panel2)}
+  .cardrow.deckrow{position:relative;padding-right:34px}
+  .cardrow.deckrow.in-deck{background:rgba(61,220,110,.08)}
+  .cr-count{position:absolute;top:5px;right:2px;font-size:.68rem;color:var(--pilot);background:#0e1013;border-radius:5px;padding:1px 6px}
+  .cardrow.deckrow.in-deck .cr-count{color:#14161a;background:var(--pilot)}
+
   @media (min-width:1131px){
     .sidepanel{
       position:sticky;top:12px;align-self:flex-start;
@@ -196,6 +210,8 @@
       <button class="ghost" id="btnJoin" style="flex:0 0 auto">参加</button>
     </div>
     <button class="ghost" id="btnSolo">🤖 ひとりで遊ぶ（CPU対戦）</button>
+    <button class="ghost" id="btnDeckEdit">🛠 デッキ編集</button>
+    <div class="note" id="activeDeckInfo"></div>
     <div class="err" id="lobbyErr"></div>
   </div>
 
@@ -203,6 +219,24 @@
     <div>ルームコード</div>
     <div class="codeview" id="codeView">----</div>
     <div class="note">相手に同じURLを開いてもらい、<br>このコードを入力してもらってください。<br>対戦相手を待っています…</div>
+  </div>
+
+  <div class="box hidden" id="deckBox">
+    <div class="deckhead">
+      <button class="ghost" id="btnDeckBack">← 戻る</button>
+      <div>デッキ編集</div>
+      <div style="width:56px"></div>
+    </div>
+    <div class="deckslots">
+      <button class="ghost deckslotbtn" data-slot="1">デッキ1</button>
+      <button class="ghost deckslotbtn" data-slot="2">デッキ2</button>
+      <button class="ghost deckslotbtn" data-slot="3">デッキ3</button>
+    </div>
+    <div id="deckSummary" class="decksummary"></div>
+    <div id="deckList" class="decklist"></div>
+    <button id="btnDeckSave">保存</button>
+    <div class="err" id="deckErr"></div>
+    <div class="note">タップで枚数0→1→2→0を切替。長押し（PCは右クリック）でカード詳細。</div>
   </div>
 
   <div class="note">同じWi-Fi/LAN内なら http://親機のIP:3001 でOK<br>ワット数＝コスト。ブレーカー（体力20）を先に落とした方が勝ち！</div>
@@ -330,13 +364,11 @@ async function loadCardPool(){
   }catch(e){ CARD_POOL=[]; }
   renderCardList();
 }
-function cardListRow(card){
-  const row=document.createElement("div");
-  row.className="cardrow";
+function cardRowHTML(card){
   const statHtml = card.t==="f"
     ? `<span class="atk">⚡${card.a}</span> / <span class="hp2">❤${card.h}</span>`
     : "スペル";
-  row.innerHTML=`
+  return `
     <div class="cr-top">
       <span class="cr-em">${card.e}</span>
       <span class="cr-name">${card.n}${card.kw?` <span class="cr-kw">(${card.kw})</span>`:""}</span>
@@ -345,6 +377,11 @@ function cardListRow(card){
     <div class="cr-stat">${statHtml}</div>
     ${card.tx?`<div class="cr-tx">${card.tx}</div>`:""}
   `;
+}
+function cardListRow(card){
+  const row=document.createElement("div");
+  row.className="cardrow";
+  row.innerHTML=cardRowHTML(card);
   row.onclick=()=>openCardDetail(card);
   return row;
 }
@@ -361,7 +398,110 @@ function renderCardList(){
   body.appendChild(h2);
   spells.forEach(c=>body.appendChild(cardListRow(c)));
 }
-loadCardPool();
+loadCardPool().then(()=>{ if(!$("deckBox").classList.contains("hidden"))renderDeckEditor(); });
+
+/* ============ デッキビルダー ============
+   検証（枚数20・同名2枚まで）はサーバー側が最終権威。ここでのチェックはUI用の目安。 */
+const DECK_SIZE=20;
+const DECKS_KEY="wattdokan_decks_v1";
+const ACTIVE_SLOT_KEY="wattdokan_active_slot";
+let deckEditorSlot="1";
+let deckDraft={}; // id -> 枚数(1,2)
+
+function loadDecks(){ try{ return JSON.parse(localStorage.getItem(DECKS_KEY))||{}; }catch{ return {}; } }
+function saveDecks(d){ try{ localStorage.setItem(DECKS_KEY,JSON.stringify(d)); }catch{} }
+function getActiveSlot(){ try{ return localStorage.getItem(ACTIVE_SLOT_KEY)||"1"; }catch{ return "1"; } }
+function setActiveSlot(s){ try{ localStorage.setItem(ACTIVE_SLOT_KEY,s); }catch{} }
+function deckTotal(){ return Object.values(deckDraft).reduce((a,b)=>a+b,0); }
+function draftToIds(){
+  const ids=[];
+  Object.entries(deckDraft).forEach(([id,n])=>{ for(let i=0;i<n;i++)ids.push(id); });
+  return ids;
+}
+function getActiveDeckIds(){
+  const ids=loadDecks()[getActiveSlot()];
+  return Array.isArray(ids)&&ids.length===DECK_SIZE ? ids : null; // 不正・未完成ならnull→サーバーがデフォルトデッキを使用
+}
+function updateActiveDeckInfo(){
+  const slot=getActiveSlot();
+  const ids=loadDecks()[slot];
+  const n=Array.isArray(ids)?ids.length:0;
+  $("activeDeckInfo").textContent = n===DECK_SIZE
+    ? `使用デッキ：デッキ${slot}（20/20・OK）`
+    : `使用デッキ：デッキ${slot}（${n}/20・未完成のためデフォルトデッキを使用）`;
+}
+
+function openDeckBuilder(){
+  $("menuBox").classList.add("hidden");
+  $("deckBox").classList.remove("hidden");
+  loadDeckIntoEditor(getActiveSlot());
+}
+function closeDeckBuilder(){
+  $("deckBox").classList.add("hidden");
+  $("menuBox").classList.remove("hidden");
+  updateActiveDeckInfo();
+}
+function loadDeckIntoEditor(slot){
+  deckEditorSlot=slot;
+  setActiveSlot(slot);
+  const ids=loadDecks()[slot];
+  deckDraft={};
+  if(Array.isArray(ids))ids.forEach(id=>{ deckDraft[id]=(deckDraft[id]||0)+1; });
+  renderDeckSlotTabs();
+  renderDeckEditor();
+}
+function renderDeckSlotTabs(){
+  const decks=loadDecks();
+  document.querySelectorAll(".deckslotbtn").forEach(btn=>{
+    const slot=btn.dataset.slot;
+    const ids=decks[slot];
+    const n=Array.isArray(ids)?ids.length:0;
+    btn.textContent=`デッキ${slot}（${n}/20）`;
+    btn.classList.toggle("active-slot",slot===deckEditorSlot);
+  });
+}
+function deckCardRow(card){
+  const row=document.createElement("div");
+  row.className="cardrow deckrow";
+  row.innerHTML=cardRowHTML(card)+`<span class="cr-count"></span>`;
+  attachDetail(row,card); // 長押し／右クリックでカード詳細
+  row.onclick=()=>{
+    if(suppressNextClick){suppressNextClick=false;return}
+    const n=((deckDraft[card.id]||0)+1)%3;
+    if(n===0)delete deckDraft[card.id]; else deckDraft[card.id]=n;
+    renderDeckEditor();
+  };
+  return row;
+}
+function renderDeckEditor(){
+  if(!CARD_POOL.length){ $("deckList").textContent="カードデータを読み込み中…"; return; }
+  const total=deckTotal();
+  const band=(lo,hi)=>CARD_POOL.filter(c=>c.c>=lo&&c.c<=hi).reduce((s,c)=>s+(deckDraft[c.id]||0),0);
+  $("deckSummary").innerHTML=`<b>${total}/20</b>枚　100-300W:${band(100,300)}　400-600W:${band(400,600)}　700-1000W:${band(700,1000)}`;
+  const list=$("deckList"); list.innerHTML="";
+  [...CARD_POOL].sort((a,b)=>a.c-b.c).forEach(card=>{
+    const row=deckCardRow(card);
+    const n=deckDraft[card.id]||0;
+    row.classList.toggle("in-deck",n>0);
+    row.querySelector(".cr-count").textContent=`×${n}`;
+    list.appendChild(row);
+  });
+  $("btnDeckSave").disabled=total!==DECK_SIZE;
+}
+$("btnDeckEdit").onclick=()=>openDeckBuilder();
+$("btnDeckBack").onclick=()=>closeDeckBuilder();
+document.querySelectorAll(".deckslotbtn").forEach(btn=>{
+  btn.onclick=()=>loadDeckIntoEditor(btn.dataset.slot);
+});
+$("btnDeckSave").onclick=()=>{
+  if(deckTotal()!==DECK_SIZE){ $("deckErr").textContent="20枚ちょうどにしてください"; return; }
+  const decks=loadDecks();
+  decks[deckEditorSlot]=draftToIds();
+  saveDecks(decks);
+  renderDeckSlotTabs();
+  $("deckErr").textContent="保存しました！";
+};
+updateActiveDeckInfo();
 
 /* ============ サウンド（Web Audioで自作チップチューンを生成・音源ファイル不要） ============ */
 const Snd=(()=>{
@@ -531,19 +671,19 @@ function setOppBanner(text){
 $("btnCreate").onclick=()=>{
   Snd.unlock();
   myName=($("nameInput").value.trim()||"先攻⚡");
-  connectAndSend({type:"create",name:myName});
+  connectAndSend({type:"create",name:myName,deck:getActiveDeckIds()});
 };
 $("btnJoin").onclick=()=>{
   Snd.unlock();
   const code=$("codeInput").value.trim();
   if(!/^\d{4}$/.test(code)){$("lobbyErr").textContent="4桁の数字コードを入力してください";return}
   myName=($("nameInput").value.trim()||"後攻🔧");
-  connectAndSend({type:"join",code,name:myName});
+  connectAndSend({type:"join",code,name:myName,deck:getActiveDeckIds()});
 };
 $("btnSolo").onclick=()=>{
   Snd.unlock();
   myName=($("nameInput").value.trim()||"でんこう⚡");
-  connectAndSend({type:"solo",name:myName});
+  connectAndSend({type:"solo",name:myName,deck:getActiveDeckIds()});
 };
 
 /* ============ サーバーからのスナップショット適用 ＋ 演出キュー ============ */
@@ -552,7 +692,7 @@ function onState(newSnap){
   if(isNewGame){
     lastGameId=newSnap.gameId; lastSeenEventId=-1;
     animQueue=Promise.resolve();
-    ended=false; rematchWaiting=false; oppWantsRematch=false;
+    ended=false; rematchWaiting=false; oppWantsRematch=false; bgmStarted=false;
     $("overlay").classList.remove("show");
     $("log").innerHTML="";
     clearSel();
