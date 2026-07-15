@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ワットでドカン！ -CARD BATTLE ONLINE-</title>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14171c; --panel:#1e2229; --panel2:#262b34;
+    --label:#f2ead8; --safety:#ffc93c; --danger:#ff4b2e;
+    --pilot:#3ddc6e; --copper:#d08a4c; --line:#3a3f47; --cyan:#5bd0ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none}
+  body{
+    font-family:'DotGothic16',ui-sans-serif,system-ui,"Hiragino Kaku Gothic ProN",sans-serif;
+    background:repeating-linear-gradient(90deg,transparent 0 39px,rgba(255,255,255,.015) 39px 40px),var(--bg);
+    color:var(--label);min-height:100vh;display:flex;
+  }
+  .centercol{flex:1;display:flex;justify-content:center;min-width:0}
+  /* 上部パディングは左上/右上の固定トグルボタン分の逃げ（相手リーダーの誤タップ防止） */
+  .game{width:100%;max-width:520px;padding:44px 8px 12px;display:none;flex-direction:column;gap:6px;min-height:100vh}
+  .game.on{display:flex}
+
+  /* ---- サイドパネル（カード一覧／ルール説明） ---- */
+  .paneltoggle{position:fixed;top:8px;z-index:46;font-size:.65rem;padding:8px 10px;border-radius:8px;line-height:1.3}
+  .paneltoggle.left{left:8px}
+  .paneltoggle.right{right:8px}
+  .paneltoggle.active{background:var(--safety);color:#14161a}
+  .paneltoggle:not(.active){background:transparent;color:var(--safety)}
+
+  .sidepanel{
+    position:fixed;top:0;bottom:0;width:min(84vw,300px);z-index:45;
+    background:var(--panel);padding:44px 10px 10px;overflow-y:auto;
+    font-size:.68rem;line-height:1.6;transition:transform .28s ease;
+    box-shadow:0 0 24px rgba(0,0,0,.4);
+  }
+  .sidepanel.left{left:0;transform:translateX(-100%);border-right:2px solid var(--line)}
+  .sidepanel.right{right:0;transform:translateX(100%);border-left:2px solid var(--line)}
+  .sidepanel.open{transform:translateX(0)}
+  .sidepanel h2{font-size:.85rem;color:var(--safety);font-weight:normal;margin-bottom:8px;letter-spacing:.05em}
+  .sidepanel h3{font-size:.7rem;color:var(--copper);font-weight:normal;margin:10px 0 4px;opacity:.9}
+
+  .cardrow{border-bottom:1px solid var(--line);padding:5px 2px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+  .cardrow:hover{background:var(--panel2)}
+  .cr-top{display:flex;align-items:center;gap:5px}
+  .cr-em{font-size:1.1rem;flex:0 0 auto}
+  .cr-name{flex:1;min-width:0}
+  .cr-kw{color:var(--copper);font-size:.6rem;flex:0 0 auto}
+  .cr-cost{color:var(--safety);font-size:.62rem;flex:0 0 auto;background:#0e1013;border-radius:5px;padding:1px 4px}
+  .cr-stat{opacity:.85;font-size:.62rem}
+  .cr-stat .atk{color:var(--safety)} .cr-stat .hp2{color:var(--pilot)}
+  .cr-tx{opacity:.6;font-size:.6rem;line-height:1.4}
+
+  .rulesbox p{margin-bottom:8px}
+  .rulesbox b{color:var(--safety)}
+  .rulesbox .kw{color:var(--copper)}
+
+  @media (min-width:1131px){
+    .sidepanel{
+      position:sticky;top:12px;align-self:flex-start;
+      width:260px;max-height:calc(100vh - 24px);
+      transform:none !important;transition:none;
+      border-radius:8px;border:2px solid var(--line);padding:12px;
+      box-shadow:none;
+    }
+    .sidepanel.left{margin:12px 0 12px 12px}
+    .sidepanel.right{margin:12px 12px 12px 0}
+    .sidepanel:not(.open){display:none}
+    .game{padding-top:8px} /* 広い画面ではトグルボタンがサイド列にあり中央と重ならないため元に戻す */
+  }
+
+  .leader{display:flex;align-items:center;gap:8px;background:var(--panel);border:2px solid var(--line);border-radius:8px;padding:6px 10px;font-size:.8rem}
+  .leader .face{font-size:1.5rem;width:44px;height:44px;border:2px solid var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;background:var(--panel2)}
+  .leader .face.targetable{border-color:var(--danger);box-shadow:0 0 8px var(--danger);cursor:pointer}
+  .leader .hp{font-size:1.2rem;color:var(--pilot)} .leader .hp.low{color:var(--danger)}
+  .leader .sub{opacity:.75;font-size:.68rem;line-height:1.5}
+  .orbs{display:flex;gap:2px;margin-top:2px}
+  .orb{width:10px;height:14px;border-radius:3px;border:1px solid var(--line);background:#0e1013}
+  .orb.on{background:var(--safety);border-color:var(--safety)}
+  .ep{color:var(--cyan)}
+  .turnbadge{font-size:.65rem;border:1px solid var(--pilot);color:var(--pilot);border-radius:6px;padding:1px 6px;display:none}
+  .turnbadge.on{display:inline-block}
+  .timerbadge{font-size:.65rem;border:1px solid var(--line);color:var(--label);border-radius:6px;padding:1px 6px;opacity:.8}
+
+  .board{min-height:96px;background:var(--panel);border:2px solid var(--line);border-radius:8px;display:flex;gap:6px;align-items:center;justify-content:center;padding:6px}
+  .board.enemy{border-style:dashed}
+  .unit{width:76px;height:88px;border:2px solid var(--copper);border-radius:8px;background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:4px 2px;position:relative;font-size:.6rem;text-align:center;animation:pop .25s cubic-bezier(.2,1.4,.4,1)}
+  @keyframes pop{from{transform:scale(.5);opacity:0}}
+  .unit .em{font-size:1.5rem;line-height:1.2}
+  .unit .nm{line-height:1.1;overflow:hidden;max-height:2.2em}
+  .unit .st{display:flex;justify-content:space-between;width:100%;padding:0 4px;font-size:.8rem}
+  .unit .atk{color:var(--safety)} .unit .hp2{color:var(--pilot)} .unit .hp2.dmg{color:var(--danger)}
+  .unit .kw{position:absolute;top:-8px;right:-4px;font-size:.85rem}
+  .unit.ready{border-color:var(--pilot);box-shadow:0 0 6px rgba(61,220,110,.5)}
+  .unit.sel{border-color:var(--safety);box-shadow:0 0 10px var(--safety);transform:translateY(-4px)}
+  .unit.targetable{border-color:var(--danger);box-shadow:0 0 10px var(--danger);cursor:pointer}
+  .unit.evolved{background:linear-gradient(180deg,#33301f,var(--panel2))}
+  .unit.destroying{animation:destroyFx .38s ease-in forwards !important}
+  @keyframes destroyFx{0%{transform:scale(1) rotate(0);opacity:1}60%{transform:scale(1.15) rotate(8deg);opacity:.8}100%{transform:scale(.2) rotate(25deg);opacity:0}}
+  .empty-hint{opacity:.3;font-size:.7rem}
+
+  .msgbar{min-height:40px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:.8rem;text-align:center;padding:2px 6px;line-height:1.5}
+  .flashdmg{animation:shake .35s}
+  @keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+
+  .oppbanner{display:none;background:rgba(255,75,46,.15);border:1px solid var(--danger);color:var(--danger);font-size:.68rem;text-align:center;padding:4px 6px;border-radius:6px}
+  .oppbanner.show{display:block}
+
+  .hand{display:flex;gap:6px;overflow-x:auto;padding:8px 4px;background:var(--panel);border:2px solid var(--line);border-radius:8px;min-height:132px}
+  .hand.hidden{display:none}
+  .card{flex:0 0 88px;height:116px;border:2px solid var(--line);border-radius:8px;background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:4px 3px;font-size:.58rem;text-align:center;position:relative;opacity:.55}
+  .card.playable{opacity:1;border-color:var(--pilot);cursor:pointer}
+  .card.sel{border-color:var(--safety);box-shadow:0 0 10px var(--safety);transform:translateY(-6px)}
+  .card.mulliSel{border-color:var(--danger);box-shadow:0 0 10px var(--danger);opacity:1}
+  .card.mulliSel::after{content:"交換";position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);background:var(--danger);color:#14161a;font-size:.55rem;padding:1px 5px;border-radius:5px}
+  .card .cost{position:absolute;top:-7px;left:-5px;background:var(--safety);color:#14161a;border-radius:6px;padding:1px 4px;font-size:.62rem}
+  .card .em{font-size:1.6rem}
+  .card .nm{line-height:1.1}
+  .card .tx{opacity:.75;line-height:1.25;font-size:.52rem;min-height:2.4em}
+  .card .st{display:flex;justify-content:space-between;width:100%;padding:0 5px;font-size:.78rem}
+  .card .atk{color:var(--safety)} .card .hp2{color:var(--pilot)} .card .sp{color:var(--cyan);font-size:.62rem}
+
+  .mulligan{background:var(--panel);border:2px solid var(--safety);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;min-height:132px}
+  .mulligan.hidden{display:none}
+  .mulligan .mtitle{font-size:.72rem;text-align:center;opacity:.9}
+  .mulligan .note{font-size:.68rem;opacity:.7;text-align:center;line-height:1.7}
+
+  button{font-family:inherit;font-size:.9rem;padding:10px 16px;border-radius:8px;border:2px solid var(--safety);background:var(--safety);color:#14161a;cursor:pointer;letter-spacing:.05em}
+  button.ghost{background:transparent;color:var(--safety)}
+  button:disabled{opacity:.35;cursor:default}
+  button:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+  .footrow{display:flex;gap:8px;align-items:stretch}
+  .footrow .leader{flex:1}
+  .log{font-size:.62rem;opacity:.6;max-height:4.5em;overflow-y:auto;line-height:1.6;padding:0 4px}
+
+  /* ---- ロビー ---- */
+  .lobby{width:100%;max-width:420px;padding:24px 16px;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;min-height:100vh;text-align:center}
+  .lobby h1{color:var(--safety);font-weight:normal;font-size:1.8rem;line-height:1.4}
+  .lobby h1 small{display:block;font-size:.6rem;letter-spacing:.3em;opacity:.6;color:var(--label)}
+  .lobby .box{width:100%;border:2px solid var(--line);border-radius:8px;background:var(--panel);padding:16px;display:flex;flex-direction:column;gap:10px}
+  .lobby input{font-family:inherit;font-size:1.1rem;text-align:center;padding:10px;border-radius:8px;border:2px solid var(--line);background:#0e1013;color:var(--label);width:100%;letter-spacing:.2em}
+  .lobby input:focus{outline:none;border-color:var(--safety)}
+  .codeview{font-size:2.6rem;color:var(--safety);letter-spacing:.3em}
+  .lobby .note{font-size:.68rem;opacity:.6;line-height:1.8}
+  .err{color:var(--danger);font-size:.75rem;min-height:1.2em}
+  .hidden{display:none !important}
+
+  .overlay{position:fixed;inset:0;background:rgba(10,12,15,.85);display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:10;text-align:center;padding:20px}
+  .overlay.show{display:flex}
+  .overlay h2{font-size:2.2rem;color:var(--safety);font-weight:normal}
+  .overlay h2.lose{color:var(--danger)}
+  .overlay p{font-size:.85rem;opacity:.8;line-height:1.8}
+  .overlay .btnrow{display:flex;gap:10px}
+
+  /* ---- カード詳細（長押し／右クリック） ---- */
+  .carddetail{position:fixed;inset:0;background:rgba(10,12,15,.75);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
+  .carddetail.show{display:flex}
+  .cdbox{width:220px;min-height:260px;background:var(--panel2);border:3px solid var(--safety);border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+  .cdbox .em{font-size:4rem}
+  .cdbox .nm{font-size:1.15rem}
+  .cdbox .cost{color:var(--safety);font-size:1rem}
+  .cdbox .kw{color:var(--copper);font-size:.85rem}
+  .cdbox .st{display:flex;gap:24px;font-size:1.5rem}
+  .cdbox .tx{font-size:.72rem;opacity:.85;line-height:1.7}
+  .cdbox .sp{color:var(--cyan)}
+
+  /* ---- ダメージポップ ---- */
+  .dmgpop{position:fixed;transform:translate(-50%,-10px);font-size:1.15rem;font-weight:bold;pointer-events:none;z-index:50;animation:dmgfloat .75s ease-out forwards;text-shadow:0 0 4px #000}
+  .dmgpop.neg{color:var(--danger)} .dmgpop.pos{color:var(--pilot)}
+  @keyframes dmgfloat{0%{opacity:0;transform:translate(-50%,0)}15%{opacity:1}100%{opacity:0;transform:translate(-50%,-34px)}}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+
+<button class="paneltoggle left" id="btnToggleCards" title="カード一覧の表示切替">🃏 カード</button>
+<button class="paneltoggle right" id="btnToggleRules" title="ルール説明の表示切替">📖 ルール</button>
+
+<aside class="sidepanel left" id="panelCards">
+  <h2>🃏 カード一覧</h2>
+  <div id="cardListBody">読み込み中…</div>
+</aside>
+
+<div class="centercol">
+<!-- ============ ロビー ============ -->
+<div class="lobby" id="lobby">
+  <h1>ワットでドカン！<small>CARD BATTLE ONLINE</small></h1>
+
+  <div class="box" id="menuBox">
+    <input id="nameInput" maxlength="8" placeholder="プレイヤー名（8文字まで）">
+    <button id="btnCreate">⚡ ルームを作る（先攻）</button>
+    <div style="display:flex;gap:8px">
+      <input id="codeInput" maxlength="4" inputmode="numeric" placeholder="コード4桁">
+      <button class="ghost" id="btnJoin" style="flex:0 0 auto">参加</button>
+    </div>
+    <button class="ghost" id="btnSolo">🤖 ひとりで遊ぶ（CPU対戦）</button>
+    <div class="err" id="lobbyErr"></div>
+  </div>
+
+  <div class="box hidden" id="waitBox">
+    <div>ルームコード</div>
+    <div class="codeview" id="codeView">----</div>
+    <div class="note">相手に同じURLを開いてもらい、<br>このコードを入力してもらってください。<br>対戦相手を待っています…</div>
+  </div>
+
+  <div class="note">同じWi-Fi/LAN内なら http://親機のIP:3001 でOK<br>ワット数＝コスト。ブレーカー（体力20）を先に落とした方が勝ち！</div>
+</div>
+
+<!-- ============ ゲーム画面 ============ -->
+<div class="game" id="game">
+  <div class="leader">
+    <div class="face" id="oFace">🔌</div>
+    <div style="flex:1">
+      <div><span id="oName">相手</span>　<span class="hp" id="oHp">20</span> ❤ <span class="turnbadge" id="oTurn">相手のターン</span></div>
+      <div class="sub">手札 <span id="oHandN">0</span>枚 ／ EP <span class="ep" id="oEp">-</span> ／ 山札 <span id="oDeckN">-</span></div>
+      <div class="orbs" id="oOrbs"></div>
+    </div>
+    <div class="sub" id="oWtxt">0/0W</div>
+  </div>
+
+  <div class="oppbanner" id="oppBanner"></div>
+
+  <div class="board enemy" id="oBoard"><span class="empty-hint">相手の盤面</span></div>
+  <div class="msgbar" id="msg">接続中…</div>
+  <div class="board" id="mBoard"><span class="empty-hint">家電を設置しよう（最大4台）</span></div>
+
+  <div class="mulligan hidden" id="mulliPanel">
+    <div class="mtitle">マリガン：交換したいカードをタップして選択</div>
+    <div class="hand" id="mulliHand"></div>
+    <div style="display:flex;justify-content:center">
+      <button id="btnMulliConfirm">そのまま開始</button>
+    </div>
+    <div class="note" id="mulliWait"></div>
+  </div>
+  <div class="hand" id="hand"></div>
+
+  <div class="footrow">
+    <div class="leader">
+      <div class="face" id="mFace">👷</div>
+      <div style="flex:1">
+        <div><span id="mName">あなた</span>　<span class="hp" id="mHp">20</span> ❤ <span class="turnbadge" id="mTurn">あなたのターン</span> <span class="timerbadge" id="timerTxt"></span></div>
+        <div class="sub">EP <span class="ep" id="mEp">2</span> ／ 山札 <span id="mDeckN">-</span></div>
+        <div class="orbs" id="mOrbs"></div>
+      </div>
+      <div class="sub" id="mWtxt">0/0W</div>
+    </div>
+    <button class="ghost" id="btnBgm" style="flex:0 0 auto" title="サウンドON/OFF">🔊</button>
+    <button id="btnEnd">ターン<br>終了</button>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+</div><!-- /.centercol -->
+
+<aside class="sidepanel right" id="panelRules">
+  <h2>📖 ルール説明</h2>
+  <div class="rulesbox">
+    <p><b>勝利条件</b><br>相手のリーダー体力(❤20)を0にすれば勝ち。</p>
+    <p><b>電力（コスト）</b><br>毎ターン最大電力が+100W（上限1000W）され、電力は全回復。カードのコスト＝ワット数で、電力の範囲内でしかプレイできない。</p>
+    <p><b>盤面</b><br>自分の家電は最大4台まで設置可能。</p>
+    <p><b>キーワード</b><br>
+      <span class="kw">🛡️守護</span>：味方の他の家電より先に攻撃を受け止める<br>
+      <span class="kw">👟疾走</span>：設置したターンからリーダーにも攻撃可能<br>
+      <span class="kw">💢突進</span>：設置したターンに家電を攻撃可能（リーダー攻撃は不可）
+    </p>
+    <p><b>進化</b><br>先攻は5ターン目からEP2、後攻は4ターン目からEP3を獲得。盤面の家電1体を進化させると+2/+2され、突進と同様に設置済みでもその場で攻撃可能になる。</p>
+    <p><b>マリガン</b><br>対戦開始時、手札から交換したいカードを選んで引き直せる（制限時間25秒、1回のみ）。</p>
+    <p><b>ファティーグ</b><br>山札が切れた状態でドローすると、回数を重ねるごとに増える累積ダメージをリーダーが受ける。</p>
+    <p><b>ターンタイマー</b><br>1ターン90秒。時間切れになると自動的にターン終了になる。</p>
+    <p><b>カード詳細</b><br>手札・盤面のカードは長押し（PCは右クリック）で拡大表示できる。</p>
+  </div>
+</aside>
+
+<div class="overlay" id="overlay">
+  <h2 id="resTitle">WIN</h2>
+  <p id="resText"></p>
+  <div class="note" id="rematchStatus"></div>
+  <div class="btnrow">
+    <button id="btnRematch">🔁 もう一戦</button>
+    <button class="ghost" id="btnBackLobby">ロビーに戻る</button>
+  </div>
+</div>
+
+<div class="carddetail" id="cardDetail">
+  <div class="cdbox" id="cdBox"></div>
+</div>
+
+<script>
+/* ============ 表示専用の定数（ルール権威はサーバー側） ============ */
+const MAXW=1000, BOARD_MAX=4;
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ============ サイドパネル（カード一覧／ルール説明） ============
+   カードデータはハードコード複製せず、必ずサーバーの /cards から取得する。 */
+const WIDE_QUERY="(min-width:1131px)";
+const PANEL_KEY_CARDS="wattdokan_panel_cards";
+const PANEL_KEY_RULES="wattdokan_panel_rules";
+let CARD_POOL=[];
+
+function loadPanelState(key){
+  try{
+    const v=localStorage.getItem(key);
+    if(v==="1")return true;
+    if(v==="0")return false;
+  }catch{}
+  return null; // 未設定：初期値は幅で決める
+}
+function savePanelState(key,open){ try{localStorage.setItem(key,open?"1":"0");}catch{} }
+
+function setupPanel(toggleBtn,panelEl,storageKey){
+  const saved=loadPanelState(storageKey);
+  const wide=matchMedia(WIDE_QUERY).matches;
+  let open = saved===null ? wide : saved; // 未設定時：広い画面はON、狭い画面はOFF
+  function apply(){
+    panelEl.classList.toggle("open",open);
+    toggleBtn.classList.toggle("active",open);
+  }
+  apply();
+  toggleBtn.onclick=()=>{ open=!open; savePanelState(storageKey,open); apply(); };
+}
+setupPanel($("btnToggleCards"),$("panelCards"),PANEL_KEY_CARDS);
+setupPanel($("btnToggleRules"),$("panelRules"),PANEL_KEY_RULES);
+
+async function loadCardPool(){
+  try{
+    const res=await fetch("/cards");
+    CARD_POOL=await res.json();
+  }catch(e){ CARD_POOL=[]; }
+  renderCardList();
+}
+function cardListRow(card){
+  const row=document.createElement("div");
+  row.className="cardrow";
+  const statHtml = card.t==="f"
+    ? `<span class="atk">⚡${card.a}</span> / <span class="hp2">❤${card.h}</span>`
+    : "スペル";
+  row.innerHTML=`
+    <div class="cr-top">
+      <span class="cr-em">${card.e}</span>
+      <span class="cr-name">${card.n}${card.kw?` <span class="cr-kw">(${card.kw})</span>`:""}</span>
+      <span class="cr-cost">${card.c}W</span>
+    </div>
+    <div class="cr-stat">${statHtml}</div>
+    ${card.tx?`<div class="cr-tx">${card.tx}</div>`:""}
+  `;
+  row.onclick=()=>openCardDetail(card);
+  return row;
+}
+function renderCardList(){
+  const body=$("cardListBody");
+  if(!CARD_POOL.length){ body.textContent="カードデータを取得できませんでした。"; return; }
+  const followers=CARD_POOL.filter(c=>c.t==="f").sort((a,b)=>a.c-b.c);
+  const spells=CARD_POOL.filter(c=>c.t==="s").sort((a,b)=>a.c-b.c);
+  body.innerHTML="";
+  const h1=document.createElement("h3"); h1.textContent=`◆ フォロワー（${followers.length}）`;
+  body.appendChild(h1);
+  followers.forEach(c=>body.appendChild(cardListRow(c)));
+  const h2=document.createElement("h3"); h2.textContent=`◆ スペル（${spells.length}）`;
+  body.appendChild(h2);
+  spells.forEach(c=>body.appendChild(cardListRow(c)));
+}
+loadCardPool();
+
+/* ============ サウンド（Web Audioで自作チップチューンを生成・音源ファイル不要） ============ */
+const Snd=(()=>{
+  let ctx=null,muted=false,timer=null,step=0,nextT=0;
+  const mf=n=>440*Math.pow(2,(n-69)/12); // MIDIノート→周波数
+  function ac(){
+    if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state==="suspended")ctx.resume();
+    return ctx;
+  }
+  function tone(freq,t0,dur,type,vol){
+    if(muted)return;const c=ac();
+    const o=c.createOscillator(),g=c.createGain();
+    o.type=type;o.frequency.value=freq;
+    g.gain.setValueAtTime(vol,t0);
+    g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+    o.connect(g).connect(c.destination);
+    o.start(t0);o.stop(t0+dur+0.02);
+  }
+  function noise(t0,dur,vol){
+    if(muted)return;const c=ac();
+    const len=Math.floor(c.sampleRate*dur),buf=c.createBuffer(1,len,c.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len);
+    const s=c.createBufferSource(),g=c.createGain();
+    s.buffer=buf;g.gain.value=vol;
+    s.connect(g).connect(c.destination);s.start(t0);
+  }
+  /* --- BGM：Aマイナー・150BPMの自作32ステップループ（0=休符） --- */
+  const SPB=60/150/2;
+  const LEAD=[69,0,72,74,76,0,74,72,69,0,67,69,72,0,74,0,
+              76,0,77,79,81,0,79,77,76,0,74,72,71,0,72,0];
+  const BASS=[45,0,45,0,48,0,48,0,50,0,50,0,52,0,52,0,
+              45,0,45,0,48,0,48,0,50,0,52,0,43,0,45,0];
+  function sched(){
+    const c=ac();
+    while(nextT<c.currentTime+0.12){
+      const l=LEAD[step],b=BASS[step];
+      if(l)tone(mf(l),nextT,SPB*0.9,"square",0.05);
+      if(b)tone(mf(b),nextT,SPB*1.7,"triangle",0.11);
+      if(step%8===0)noise(nextT,0.03,0.05); /* ハイハット風 */
+      step=(step+1)%LEAD.length;nextT+=SPB;
+    }
+  }
+  return{
+    unlock(){ac()}, /* ブラウザの自動再生制限解除（クリック時に呼ぶ） */
+    startBgm(){if(timer)return;const c=ac();step=0;nextT=c.currentTime+0.05;timer=setInterval(sched,30)},
+    stopBgm(){clearInterval(timer);timer=null},
+    toggle(){muted=!muted;return muted},
+    place(){const t=ac().currentTime;tone(660,t,.07,"square",.12);tone(990,t+.07,.09,"square",.12)},
+    attack(){const t=ac().currentTime;noise(t,.12,.25);tone(110,t,.12,"square",.2)},
+    dmg(){const t=ac().currentTime;tone(330,t,.08,"sawtooth",.15);tone(220,t+.08,.12,"sawtooth",.15)},
+    evolve(){const t=ac().currentTime;[523,659,784,1047].forEach((f,i)=>tone(f,t+i*.07,.12,"square",.12))},
+    turn(){const t=ac().currentTime;tone(880,t,.08,"square",.1);tone(1175,t+.09,.12,"square",.1)},
+    win(){this.stopBgm();const t=ac().currentTime;[523,659,784,1047,784,1047].forEach((f,i)=>tone(f,t+i*.12,.2,"square",.14))},
+    lose(){this.stopBgm();const t=ac().currentTime;[392,370,349,330].forEach((f,i)=>tone(f,t+i*.18,.3,"triangle",.15));noise(t+.7,.4,.3)},
+  };
+})();
+
+/* ============ セッション保存（再接続用） ============ */
+const SESSION_KEY="wattdokan_session_v1";
+const saveSession=o=>{try{localStorage.setItem(SESSION_KEY,JSON.stringify(o));}catch{}};
+const loadSession=()=>{try{return JSON.parse(localStorage.getItem(SESSION_KEY));}catch{return null}};
+const clearSession=()=>{try{localStorage.removeItem(SESSION_KEY);}catch{}};
+
+/* ============ 通信 ============ */
+let ws, seat=null, myName="でんこう";
+let snap=null;                 // 直近に描画したスナップショット（サーバー権威）
+let selHand=-1, selUnit=-1, spellMode=null;
+let lastGameId=-1, lastSeenEventId=-1, ended=false, bgmStarted=false;
+let rematchWaiting=false, oppWantsRematch=false;
+let animQueue=Promise.resolve();
+let suppressNextClick=false;
+
+function openSocket(){
+  return new Promise((resolve,reject)=>{
+    if(!location.host||location.protocol==="file:"){reject(new Error("file"));return;}
+    const sock=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host);
+    sock.onopen=()=>resolve(sock);
+    sock.onerror=()=>reject(new Error("ws"));
+  });
+}
+/* 接続が生きている間だけ有効な onmessage/onclose を張る。
+   予期しない切断（Wi-Fi切替／スリープ復帰等、リロードを伴わない切断）でも
+   セッションが残っていれば自動的に再接続を試みる。 */
+let reconnectAttempts=0;
+const MAX_RECONNECT_ATTEMPTS=8;
+function wireSocket(sock){
+  sock.onmessage=e=>dispatchMsg(JSON.parse(e.data));
+  sock.onclose=()=>{
+    if(!seat)return;                 // ロビー段階の切断は無視
+    if(snap&&snap.phase==="over")return; // 試合は既に決着済み
+    const s=loadSession();
+    if(s){ scheduleReconnect(); }
+    else if(snap){ showResult(null,"サーバーとの接続が切れました。"); }
+  };
+}
+function scheduleReconnect(){
+  const s=loadSession();
+  if(!s)return;
+  if(reconnectAttempts>=MAX_RECONNECT_ATTEMPTS){
+    showResult(null,"サーバーとの接続が切れました。");
+    return;
+  }
+  reconnectAttempts++;
+  setOppBanner(`⚠ 接続が切れました。再接続しています…（${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}）`);
+  setTimeout(async ()=>{
+    try{
+      ws=await openSocket();
+      wireSocket(ws);
+      ws.send(JSON.stringify({type:"resume",code:s.code,token:s.token}));
+    }catch(e){ scheduleReconnect(); }
+  }, Math.min(1000*reconnectAttempts,5000));
+}
+async function connectAndSend(payload){
+  try{
+    $("lobbyErr").textContent="サーバーに接続中…";
+    ws=await openSocket();
+    wireSocket(ws);
+    $("lobbyErr").textContent="";
+    ws.send(JSON.stringify(payload));
+  }catch(e){
+    if(e&&e.message==="file")$("lobbyErr").innerHTML="index.htmlを直接開いています。<br>node server.js を起動して http://localhost:3001 からアクセスしてください";
+    else $("lobbyErr").innerHTML="サーバーに接続できません。<br>node server.js が起動しているか確認してください";
+  }
+}
+function dispatchMsg(m){
+  if(m.type==="created"){
+    seat="A";saveSession({code:m.code,token:m.token,seat:"A"});
+    if(!m.solo){$("menuBox").classList.add("hidden");$("waitBox").classList.remove("hidden");$("codeView").textContent=m.code;}
+  }
+  else if(m.type==="joined"){seat="B";saveSession({code:m.code,token:m.token,seat:"B"});$("lobbyErr").textContent="接続完了！対戦開始…";}
+  else if(m.type==="error"){$("lobbyErr").textContent=m.msg;}
+  else if(m.type==="resumed"){
+    seat=(loadSession()||{}).seat||seat;reconnectAttempts=0;setOppBanner("");$("lobbyErr").textContent="";
+    if(m.waiting){ // 対戦相手がまだ参加していないルームへの復帰：待機画面を復元
+      $("menuBox").classList.add("hidden");$("waitBox").classList.remove("hidden");$("codeView").textContent=m.code;
+    }
+  }
+  else if(m.type==="resumeFail"){clearSession();$("lobbyErr").textContent="";}
+  else if(m.type==="guestJoined"){/* 続く state メッセージで画面遷移 */}
+  else if(m.type==="state"){reconnectAttempts=0;onState(m.snap);}
+  else if(m.type==="opponentDisconnected")setOppBanner("⚠ 相手が切断しました。再接続を待っています…");
+  else if(m.type==="opponentReconnected")setOppBanner("");
+  else if(m.type==="opponentLeft"){clearSession();showResult(null,"相手が退出しました。");}
+  else if(m.type==="rematchWait"){rematchWaiting=true;updateResultOverlay();}
+  else if(m.type==="rematchRequested"){oppWantsRematch=true;updateResultOverlay();}
+}
+function setOppBanner(text){
+  const b=$("oppBanner");
+  if(text){b.textContent=text;b.classList.add("show");}else{b.classList.remove("show");}
+}
+
+/* ---- ページ再読み込み時：セッションがあれば自動で試合に復帰 ---- */
+(async function tryAutoResume(){
+  const s=loadSession();
+  if(!s)return;
+  try{
+    $("lobbyErr").textContent="前回の対戦に再接続しています…";
+    seat=s.seat;
+    ws=await openSocket();
+    wireSocket(ws);
+    ws.send(JSON.stringify({type:"resume",code:s.code,token:s.token}));
+  }catch(e){$("lobbyErr").textContent="";}
+})();
+
+/* ============ ロビー ============ */
+$("btnCreate").onclick=()=>{
+  Snd.unlock();
+  myName=($("nameInput").value.trim()||"先攻⚡");
+  connectAndSend({type:"create",name:myName});
+};
+$("btnJoin").onclick=()=>{
+  Snd.unlock();
+  const code=$("codeInput").value.trim();
+  if(!/^\d{4}$/.test(code)){$("lobbyErr").textContent="4桁の数字コードを入力してください";return}
+  myName=($("nameInput").value.trim()||"後攻🔧");
+  connectAndSend({type:"join",code,name:myName});
+};
+$("btnSolo").onclick=()=>{
+  Snd.unlock();
+  myName=($("nameInput").value.trim()||"でんこう⚡");
+  connectAndSend({type:"solo",name:myName});
+};
+
+/* ============ サーバーからのスナップショット適用 ＋ 演出キュー ============ */
+function onState(newSnap){
+  const isNewGame = newSnap.gameId !== lastGameId;
+  if(isNewGame){
+    lastGameId=newSnap.gameId; lastSeenEventId=-1;
+    animQueue=Promise.resolve();
+    ended=false; rematchWaiting=false; oppWantsRematch=false;
+    $("overlay").classList.remove("show");
+    $("log").innerHTML="";
+    clearSel();
+  }
+  const ev=newSnap.event;
+  const hasNewEvent = ev && ev.id>lastSeenEventId && snap;
+  if(hasNewEvent){
+    const prev=snap;
+    animQueue=animQueue.then(()=>playEvent(ev,prev)).then(()=>{lastSeenEventId=ev.id;commitSnap(newSnap);});
+  }else{
+    if(ev)lastSeenEventId=ev.id;
+    animQueue=animQueue.then(()=>commitSnap(newSnap));
+  }
+}
+function commitSnap(newSnap){
+  snap=newSnap;
+  clearSel();
+  msg(snap.msg);
+  $("log").innerHTML=(snap.log||[]).map(t=>`<div>${t}</div>`).join("");
+  render();
+}
+
+/* ---- 演出：攻撃モーション／ダメージポップ／破壊エフェクト ---- */
+function findLeaderEl(persp){ return persp==="me"?$("mFace"):$("oFace"); }
+function findUnitEl(rawId){ return document.querySelector(`.unit[data-id="${rawId}"]`); }
+function spawnDmgPop(el,delta){
+  if(!el||delta===0)return;
+  const r=el.getBoundingClientRect();
+  const pop=document.createElement("div");
+  pop.className="dmgpop"+(delta<0?" neg":" pos");
+  pop.textContent=(delta>0?"+":"")+delta;
+  pop.style.left=(r.left+r.width/2)+"px";
+  pop.style.top=r.top+"px";
+  document.body.appendChild(pop);
+  setTimeout(()=>pop.remove(),750);
+}
+function playEvent(ev,prevSnap){
+  return new Promise(resolve=>{
+    const mySeat=prevSnap.mySeat;
+    const persp=s=>s===mySeat?"me":"opp";
+    const idEl=id=>{
+      if(id==="leaderA"||id==="leaderB")return findLeaderEl(persp(id==="leaderA"?"A":"B"));
+      return findUnitEl(id.slice(1));
+    };
+    let extraDelay=0;
+    if(ev.type==="attack"){
+      const atkEl=findUnitEl(ev.unitId);
+      const tgtEl=ev.targetLeader?findLeaderEl(persp(ev.targetSeat)):findUnitEl(ev.targetUnitId);
+      if(atkEl&&tgtEl){
+        Snd.attack();
+        const ar=atkEl.getBoundingClientRect(),tr=tgtEl.getBoundingClientRect();
+        const dx=(tr.left+tr.width/2)-(ar.left+ar.width/2);
+        const dy=(tr.top+tr.height/2)-(ar.top+ar.height/2);
+        atkEl.style.transition="transform .16s ease-in";
+        atkEl.style.transform=`translate(${dx*0.65}px,${dy*0.65}px)`;
+        atkEl.style.zIndex=5;
+        setTimeout(()=>{ atkEl.style.transition="transform .2s ease-out"; atkEl.style.transform="translate(0,0)"; },170);
+      }
+      extraDelay=170;
+    }
+    setTimeout(()=>{
+      (ev.diffs||[]).forEach(d=>spawnDmgPop(idEl(d.id),d.delta));
+      if((ev.diffs||[]).some(d=>d.delta<0))Snd.dmg();
+    },extraDelay);
+    (ev.deaths||[]).forEach(dd=>{
+      const el=findUnitEl(dd.id.slice(1));
+      if(el)el.classList.add("destroying");
+    });
+    const hold = extraDelay + ((ev.deaths&&ev.deaths.length)?380: (ev.diffs&&ev.diffs.length?260:60));
+    setTimeout(resolve,Math.max(hold,60));
+  });
+}
+
+/* ============ 操作 ============ */
+function doAction(act){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return; // 再接続中の操作は無視
+  if(act.a==="play")Snd.place();
+  if(act.a==="attack")Snd.attack();
+  if(act.a==="evolve")Snd.evolve();
+  ws.send(JSON.stringify({type:"action",act}));
+}
+function clearSel(){selHand=-1;selUnit=-1;spellMode=null}
+
+function tapHand(i){
+  if(suppressNextClick){suppressNextClick=false;return}
+  if(!snap.yourTurn)return;
+  const card=snap.me.hand[i];
+  if(!card)return;
+  if(card.c>snap.me.w){msg(`電力不足！ <b style="color:var(--danger)">${card.c}W</b> 必要（残り${snap.me.w}W）`);return}
+  if(card.t==="f"&&snap.me.board.length>=BOARD_MAX){msg("盤面がいっぱい（最大4台）");return}
+  if(card.tg){
+    if(!snap.opp.board.length){msg("対象になる敵の家電がいない");return}
+    selHand=i;spellMode=card.fx;selUnit=-1;
+    msg(`<b>${card.n}</b>：対象の敵家電をタップ`);render();return;
+  }
+  doAction({a:"play",hand:i});
+}
+function tapMyUnit(i){
+  if(suppressNextClick){suppressNextClick=false;return}
+  if(!snap.yourTurn||spellMode!==null)return;
+  if(selUnit===i){clearSel();msg("選択解除");render();return}
+  const u=snap.me.board[i];
+  selUnit=i;selHand=-1;
+  let m=`<b>${u.n}</b>を選択中`;
+  if(u.canAtk)m+="：攻撃対象をタップ";
+  if(snap.me.canEvolve&&!u.evolved)m+=` <button class="ghost" onclick="doEvolve(${i})">✨進化(+2/+2)</button>`;
+  if(!u.canAtk&&!(snap.me.canEvolve&&!u.evolved))m=`${u.n}はこのターン攻撃できない`;
+  msg(m);render();
+}
+window.doEvolve=i=>{doAction({a:"evolve",i})};
+function tapEnemyUnit(i){
+  if(suppressNextClick){suppressNextClick=false;return}
+  if(!snap.yourTurn)return;
+  if(spellMode){doAction({a:"play",hand:selHand,ti:i});return}
+  if(selUnit<0)return;
+  if(!enemyTargetable(snap.opp.board[i])){msg("🛡️守護が邪魔で攻撃できない！");return}
+  doAction({a:"attack",i:selUnit,ti:i});
+}
+$("oFace").onclick=()=>{
+  if(!leaderTargetable())return;
+  doAction({a:"attack",i:selUnit,target:"leader"});
+};
+$("btnEnd").onclick=()=>{if(snap&&snap.yourTurn){clearSel();doAction({a:"end"})}};
+$("btnBgm").onclick=()=>{$("btnBgm").textContent=Snd.toggle()?"🔇":"🔊"};
+
+/* ---- マリガン ---- */
+let mulliSelected=new Set();
+$("btnMulliConfirm").onclick=()=>{
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  ws.send(JSON.stringify({type:"action",act:{a:"mulligan",idx:[...mulliSelected]}}));
+};
+function renderMulligan(){
+  if(snap.me.mulliganDone){
+    $("mulliHand").innerHTML="";
+    $("btnMulliConfirm").classList.add("hidden");
+    $("mulliWait").textContent=snap.opp.mulliganDone?"対戦開始！":"相手の準備を待っています…";
+    return;
+  }
+  mulliSelected=new Set([...mulliSelected].filter(i=>i<snap.me.hand.length));
+  $("btnMulliConfirm").classList.remove("hidden");
+  $("mulliWait").textContent="";
+  const h=$("mulliHand");h.innerHTML="";
+  snap.me.hand.forEach((c,i)=>{
+    const el=cardEl(c,i);
+    el.classList.remove("sel","playable");
+    el.classList.toggle("mulliSel",mulliSelected.has(i));
+    el.onclick=()=>{ if(suppressNextClick){suppressNextClick=false;return} mulliSelected.has(i)?mulliSelected.delete(i):mulliSelected.add(i); renderMulligan(); };
+    h.appendChild(el);
+  });
+  $("btnMulliConfirm").textContent=mulliSelected.size?`${mulliSelected.size}枚交換して開始`:"そのまま開始";
+}
+
+/* ---- 再戦／退出 ---- */
+$("btnRematch").onclick=()=>{
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  rematchWaiting=true;
+  ws.send(JSON.stringify({type:"rematch"}));
+  updateResultOverlay();
+};
+$("btnBackLobby").onclick=()=>{clearSession();location.reload();};
+
+/* ---- カード詳細（長押し／右クリック） ---- */
+function openCardDetail(card){
+  const hpVal = card.hp!==undefined ? card.hp : card.h;
+  $("cdBox").innerHTML=`
+    <span class="em">${card.e}</span>
+    <span class="nm">${card.n}</span>
+    ${card.c!==undefined?`<span class="cost">${card.c}W</span>`:""}
+    ${card.kw?`<span class="kw">${card.kw}</span>`:""}
+    ${card.t==="s"?'<span class="sp">スペル</span>':`<span class="st"><span class="atk">⚡${card.a}</span><span class="hp2">❤${hpVal}</span></span>`}
+    <span class="tx">${card.tx||""}</span>`;
+  $("cardDetail").classList.add("show");
+}
+$("cardDetail").onclick=()=>$("cardDetail").classList.remove("show");
+function attachDetail(el,card){
+  el.addEventListener("contextmenu",e=>{e.preventDefault();openCardDetail(card);});
+  let timer=null,sx=0,sy=0;
+  el.addEventListener("pointerdown",e=>{
+    if(e.pointerType==="mouse")return;
+    sx=e.clientX;sy=e.clientY;
+    timer=setTimeout(()=>{ timer=null; suppressNextClick=true; if(navigator.vibrate)navigator.vibrate(12); openCardDetail(card); },480);
+  });
+  el.addEventListener("pointermove",e=>{
+    if(timer&&(Math.abs(e.clientX-sx)>12||Math.abs(e.clientY-sy)>12)){clearTimeout(timer);timer=null;}
+  });
+  const cancel=()=>{if(timer){clearTimeout(timer);timer=null;}};
+  el.addEventListener("pointerup",cancel);
+  el.addEventListener("pointerleave",cancel);
+}
+
+function enemyTargetable(u){
+  if(!snap.yourTurn)return false;
+  if(spellMode!==null)return true;
+  if(selUnit<0)return false;
+  const a=snap.me.board[selUnit];
+  if(!a||!a.canAtk)return false;
+  const guards=snap.opp.board.filter(x=>x.kw==="守護");
+  return !(guards.length&&u.kw!=="守護");
+}
+function leaderTargetable(){
+  if(!snap||!snap.yourTurn||spellMode!==null||selUnit<0)return false;
+  const a=snap.me.board[selUnit];
+  if(!a||!a.canAtk||a.rushOnly)return false;
+  return !snap.opp.board.some(x=>x.kw==="守護");
+}
+
+/* ============ 描画 ============ */
+function msg(html){$("msg").innerHTML=html}
+function orbs(el,s){
+  el.innerHTML="";
+  for(let i=0;i<MAXW/100;i++){
+    const o=document.createElement("span");
+    o.className="orb"+(i<s.maxW/100?(i<s.w/100?" on":""):"");
+    if(i>=s.maxW/100)o.style.opacity=.25;
+    el.appendChild(o);
+  }
+}
+function unitEl(u,mine,i){
+  const d=document.createElement("div");
+  d.className="unit"+(u.evolved?" evolved":"");
+  d.dataset.id=u.id;
+  d.innerHTML=`${u.kw?`<span class="kw">${u.kw==="守護"?"🛡️":u.kw==="疾走"?"👟":"💢"}</span>`:""}
+    <span class="em">${u.e}${u.evolved?"✨":""}</span><span class="nm">${u.n}</span>
+    <span class="st"><span class="atk">${u.a}</span><span class="hp2 ${u.hp<u.maxhp?"dmg":""}">${u.hp}</span></span>`;
+  if(mine){
+    if(snap.yourTurn&&spellMode===null&&(u.canAtk||(snap.me.canEvolve&&!u.evolved)))d.classList.add("ready");
+    if(selUnit===i)d.classList.add("sel");
+    d.onclick=()=>tapMyUnit(i);
+  }else{
+    if(enemyTargetable(u))d.classList.add("targetable");
+    d.onclick=()=>tapEnemyUnit(i);
+  }
+  attachDetail(d,u);
+  return d;
+}
+function cardEl(card,i){
+  const d=document.createElement("div");
+  d.className="card";
+  const ok=snap.phase==="battle"&&snap.yourTurn&&card.c<=snap.me.w
+    &&(card.t==="s"||snap.me.board.length<BOARD_MAX)
+    &&!(card.tg&&!snap.opp.board.length);
+  if(ok)d.classList.add("playable");
+  if(selHand===i)d.classList.add("sel");
+  d.innerHTML=`<span class="cost">${card.c}W</span><span class="em">${card.e}</span>
+    <span class="nm">${card.n}${card.kw?`<br><span style="color:var(--copper)">${card.kw}</span>`:""}</span>
+    <span class="tx">${card.tx}</span>
+    ${card.t==="f"?`<span class="st"><span class="atk">${card.a}</span><span class="hp2">${card.h}</span></span>`
+                  :`<span class="sp">スペル</span>`}`;
+  d.onclick=()=>tapHand(i);
+  attachDetail(d,card);
+  return d;
+}
+function render(){
+  if(!snap)return;
+  if(!bgmStarted){bgmStarted=true;Snd.startBgm()}
+  $("lobby").style.display="none";$("game").classList.add("on");
+  $("mName").textContent=snap.myName;$("oName").textContent=snap.oppName;
+  $("mHp").textContent=snap.me.hp;$("oHp").textContent=snap.opp.hp;
+  $("mHp").className="hp"+(snap.me.hp<=6?" low":"");$("oHp").className="hp"+(snap.opp.hp<=6?" low":"");
+  $("mEp").textContent=snap.me.ep;$("oEp").textContent=snap.opp.ep;
+  $("mWtxt").textContent=`${snap.me.w}/${snap.me.maxW}W`;$("oWtxt").textContent=`${snap.opp.w}/${snap.opp.maxW}W`;
+  $("mDeckN").textContent=snap.me.deckN;$("oDeckN").textContent=snap.opp.deckN;
+  $("oHandN").textContent=snap.opp.handN;
+  $("mTurn").classList.toggle("on",snap.yourTurn);
+  $("oTurn").classList.toggle("on",snap.phase==="battle"&&!snap.yourTurn&&!snap.result);
+  orbs($("mOrbs"),snap.me);orbs($("oOrbs"),snap.opp);
+
+  const mb=$("mBoard");mb.innerHTML="";
+  if(!snap.me.board.length)mb.innerHTML='<span class="empty-hint">家電を設置しよう（最大4台）</span>';
+  snap.me.board.forEach((u,i)=>mb.appendChild(unitEl(u,true,i)));
+  const ob=$("oBoard");ob.innerHTML="";
+  if(!snap.opp.board.length)ob.innerHTML='<span class="empty-hint">相手の盤面</span>';
+  snap.opp.board.forEach((u,i)=>ob.appendChild(unitEl(u,false,i)));
+
+  const inMulligan=snap.phase==="mulligan";
+  $("mulliPanel").classList.toggle("hidden",!inMulligan);
+  $("hand").classList.toggle("hidden",inMulligan);
+  if(inMulligan)renderMulligan();
+  else{
+    const h=$("hand");h.innerHTML="";
+    snap.me.hand.forEach((c,i)=>h.appendChild(cardEl(c,i)));
+  }
+
+  $("oFace").classList.toggle("targetable",leaderTargetable());
+  $("btnEnd").disabled=!snap.yourTurn;
+
+  updateResultOverlay();
+}
+setInterval(()=>{
+  if(!snap||!snap.deadline){$("timerTxt").textContent="";return}
+  const remain=Math.max(0,Math.ceil((snap.deadline-Date.now())/1000));
+  $("timerTxt").textContent=(snap.phase==="mulligan"?"⏳":"⏱")+remain+"s";
+  $("timerTxt").style.color=remain<=10?"var(--danger)":"";
+},500);
+
+function updateResultOverlay(){
+  if(!snap)return;
+  if(snap.phase==="over"){
+    if(!ended){ended=true; snap.result==="win"?Snd.win():Snd.lose();}
+    $("resTitle").textContent=snap.result==="win"?"WIN！":"LOSE…";
+    $("resTitle").className=snap.result==="win"?"":"lose";
+    $("resText").innerHTML=snap.result==="win"
+      ?"相手のブレーカーを落とした！💥<br>ドカン勝ちです。"
+      :"過負荷でこちらのブレーカーが遮断…<br>リベンジしよう。";
+    $("overlay").classList.add("show");
+    $("btnRematch").disabled=rematchWaiting;
+    $("rematchStatus").textContent=rematchWaiting?"相手を待っています…":(oppWantsRematch?"相手はもう一戦を希望しています！":"");
+  }else{
+    $("overlay").classList.remove("show");
+  }
+}
+function showResult(win,text){
+  ended=true;
+  $("resTitle").textContent=win===null?"切断":win?"WIN！":"LOSE…";
+  $("resTitle").className=win?"":"lose";
+  $("resText").innerHTML=text;
+  $("rematchStatus").textContent="";
+  $("btnRematch").classList.toggle("hidden",win===null);
+  $("overlay").classList.add("show");
+}
+</script>
+</body>
+</html>
