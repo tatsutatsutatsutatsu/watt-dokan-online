@@ -24,8 +24,9 @@ const server = http.createServer((req, res) => {
 
   // カードプール表示用データ配信（クライアント側でPOOLをハードコード複製しないための唯一の情報源）
   if (reqUrl === "/cards") {
-    const data = POOL.map(c => ({ n:c.n, e:c.e, c:c.c, t:c.t, a:c.a, h:c.h, kw:c.kw, tx:c.tx }));
-    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    const data = POOL.map(c => ({ id:c.id, n:c.n, e:c.e, c:c.c, t:c.t, a:c.a, h:c.h, kw:c.kw, tx:c.tx }));
+    // no-store：古いレスポンス（idなし時代等）がブラウザキャッシュから返るのを防ぐ
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
     res.end(JSON.stringify(data));
     return;
   }
@@ -40,28 +41,63 @@ const server = http.createServer((req, res) => {
 });
 
 /* ==================== カードプール（コスト＝ワット数、ルール変更なし） ==================== */
+/* id はデッキ構築でカードを特定するための安定した文字列キー。表示内容が変わってもidは変えないこと。 */
 const POOL = [
- {n:"LED電球",e:"💡",c:100,t:"f",a:1,h:1,fx:"draw1",tx:"設置時：1枚ドロー"},
- {n:"スマホ充電器",e:"🔋",c:100,t:"f",a:1,h:2,tx:""},
- {n:"扇風機",e:"🌀",c:200,t:"f",a:2,h:1,tx:""},
- {n:"検電器",e:"🖊️",c:200,t:"f",a:1,h:1,kw:"突進",tx:"突進：設置ターンに家電を攻撃可"},
- {n:"冷蔵庫",e:"🧊",c:300,t:"f",a:2,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める"},
- {n:"電気ドリル",e:"🛠️",c:300,t:"f",a:3,h:2,tx:""},
- {n:"洗濯機",e:"🫧",c:500,t:"f",a:4,h:4,tx:""},
- {n:"電子レンジ",e:"⚡",c:600,t:"f",a:5,h:4,tx:""},
- {n:"ドライヤー",e:"💨",c:700,t:"f",a:4,h:3,kw:"疾走",tx:"疾走：設置ターンからリーダーも攻撃可"},
- {n:"エアコン",e:"❄️",c:800,t:"f",a:5,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める"},
- {n:"キュービクル",e:"🏭",c:900,t:"f",a:7,h:7,kw:"守護",tx:"守護：高圧受電設備の壁"},
- {n:"特高変圧器",e:"🗼",c:1000,t:"f",a:9,h:9,tx:"フィニッシャー"},
- {n:"アース接地",e:"🌱",c:200,t:"s",fx:"heal3",tx:"自分のリーダーを3回復"},
- {n:"ショート",e:"🔥",c:300,t:"s",fx:"dmg3",tg:1,tx:"敵の家電1台に3ダメージ"},
- {n:"配線工事",e:"🔧",c:300,t:"s",fx:"draw2",tx:"カードを2枚引く"},
- {n:"ソーラーパネル",e:"☀️",c:400,t:"s",fx:"ramp",tx:"最大電力を+200W"},
- {n:"漏電遮断器",e:"🔌",c:600,t:"s",fx:"kill",tg:1,tx:"敵の家電1台を遮断（破壊）"},
- {n:"雷サージ",e:"🌩️",c:800,t:"s",fx:"aoe3",tx:"敵の家電全体に3ダメージ"},
+ {id:"led",n:"LED電球",e:"💡",c:100,t:"f",a:1,h:1,fx:"draw1",tx:"設置時：1枚ドロー"},
+ {id:"charger",n:"スマホ充電器",e:"🔋",c:100,t:"f",a:1,h:2,tx:""},
+ {id:"fan",n:"扇風機",e:"🌀",c:200,t:"f",a:2,h:1,tx:""},
+ {id:"tester",n:"検電器",e:"🖊️",c:200,t:"f",a:1,h:1,kw:"突進",tx:"突進：設置ターンに家電を攻撃可"},
+ {id:"fridge",n:"冷蔵庫",e:"🧊",c:300,t:"f",a:2,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める"},
+ {id:"drill",n:"電気ドリル",e:"🛠️",c:300,t:"f",a:3,h:2,tx:""},
+ {id:"washer",n:"洗濯機",e:"🫧",c:500,t:"f",a:4,h:4,tx:""},
+ {id:"microwave",n:"電子レンジ",e:"⚡",c:600,t:"f",a:5,h:4,tx:""},
+ {id:"dryer",n:"ドライヤー",e:"💨",c:700,t:"f",a:4,h:3,kw:"疾走",tx:"疾走：設置ターンからリーダーも攻撃可"},
+ {id:"aircon",n:"エアコン",e:"❄️",c:800,t:"f",a:5,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める"},
+ {id:"cubicle",n:"キュービクル",e:"🏭",c:900,t:"f",a:7,h:7,kw:"守護",tx:"守護：高圧受電設備の壁"},
+ {id:"transformer",n:"特高変圧器",e:"🗼",c:1000,t:"f",a:9,h:9,tx:"フィニッシャー"},
+ {id:"ground",n:"アース接地",e:"🌱",c:200,t:"s",fx:"heal3",tx:"自分のリーダーを3回復"},
+ {id:"short",n:"ショート",e:"🔥",c:300,t:"s",fx:"dmg3",tg:1,tx:"敵の家電1台に3ダメージ"},
+ {id:"wiring",n:"配線工事",e:"🔧",c:300,t:"s",fx:"draw2",tx:"カードを2枚引く"},
+ {id:"solar",n:"ソーラーパネル",e:"☀️",c:400,t:"s",fx:"ramp",tx:"最大電力を+200W"},
+ {id:"breaker",n:"漏電遮断器",e:"🔌",c:600,t:"s",fx:"kill",tg:1,tx:"敵の家電1台を遮断（破壊）"},
+ {id:"surge",n:"雷サージ",e:"🌩️",c:800,t:"s",fx:"aoe3",tx:"敵の家電全体に3ダメージ"},
 ];
+const POOL_BY_ID = new Map(POOL.map(c => [c.id, c]));
 const MAXW = 1000, BOARD_MAX = 4, HAND_MAX = 8;
 const EVO = { A:{turn:5,ep:2}, B:{turn:4,ep:3} }; // 先攻:5T/EP2 後攻:4T/EP3
+
+/* ==================== デッキ構築 ==================== */
+const DECK_SIZE = 20;
+/* デフォルトデッキ：全18種を1枚ずつ＋序盤の安定カード(led/charger)をもう1枚ずつで20枚。不正デッキの代替として使用。 */
+const DEFAULT_DECK = [
+  "led","led","charger","charger","fan","tester","fridge","drill",
+  "ground","short","wiring","solar","washer","microwave","breaker",
+  "dryer","aircon","surge","cubicle","transformer",
+];
+function validateDeck(idsRaw) {
+  if (!Array.isArray(idsRaw) || idsRaw.length !== DECK_SIZE) return null;
+  const counts = new Map();
+  for (const id of idsRaw) {
+    if (typeof id !== "string" || !POOL_BY_ID.has(id)) return null;
+    const n = (counts.get(id) || 0) + 1;
+    if (n > 2) return null;
+    counts.set(id, n);
+  }
+  return idsRaw.slice();
+}
+function resolveDeck(idsRaw) {
+  const v = validateDeck(idsRaw);
+  if (!v) {
+    console.log("⚠ 不正なデッキを受信 → デフォルトデッキで代替:", JSON.stringify(idsRaw));
+    return DEFAULT_DECK.slice();
+  }
+  return v;
+}
+function randomValidDeck() {
+  const bag = POOL.flatMap(c => [c.id, c.id]); // 2枚ずつの36枚バッグ
+  shuffle(bag);
+  return bag.slice(0, DECK_SIZE);
+}
 
 /* ==================== ユーティリティ ==================== */
 const shuffle = a => { for (let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
@@ -93,7 +129,10 @@ function makeRoom(code, cpu) {
 }
 
 /* ==================== ゲームエンジン ==================== */
-function mkSide() { return { hp:20, maxW:0, w:0, ep:0, tn:0, epGiven:false, fatigue:0, mulliganDone:false, deck: shuffle(POOL.flatMap(c => [{...c},{...c}])), hand:[], board:[] }; }
+function mkSide(deckIds) {
+  return { hp:20, maxW:0, w:0, ep:0, tn:0, epGiven:false, fatigue:0, mulliganDone:false,
+    deck: shuffle(deckIds.map(id => ({ ...POOL_BY_ID.get(id) }))), hand:[], board:[] };
+}
 
 function setMsg(G, text) {
   G.msg = text;
@@ -166,7 +205,7 @@ function newGame(room, nameA, nameB) {
   room.epoch = (room.epoch||0) + 1;
   clearOverTimer(room);
   const G = {
-    S: { A: mkSide(), B: mkSide() },
+    S: { A: mkSide(room.seats.A.deck), B: mkSide(room.seats.B.deck) },
     active: "A", msg: "マリガン：交換したいカードを選んでください", logList: [],
     phase: "mulligan", result: null,
     names: { A: nameA, B: nameB },
@@ -443,7 +482,7 @@ wss.on("connection", (ws) => {
       const code = genCode();
       const room = makeRoom(code, false);
       const token = genToken();
-      room.seats.A = { ws, name: cleanName(m.name) || "先攻⚡", token, connected:true };
+      room.seats.A = { ws, name: cleanName(m.name) || "先攻⚡", token, connected:true, deck: resolveDeck(m.deck) };
       rooms.set(code, room);
       ws.roomCode = code; ws.seat = "A";
       send(ws, { type:"created", code, token });
@@ -454,7 +493,7 @@ wss.on("connection", (ws) => {
       if (!room) { send(ws, { type:"error", msg:"ルームが見つかりません" }); return; }
       if (room.seats.B) { send(ws, { type:"error", msg:"このルームは満室です" }); return; }
       const token = genToken();
-      room.seats.B = { ws, name: cleanName(m.name) || "後攻🔧", token, connected:true };
+      room.seats.B = { ws, name: cleanName(m.name) || "後攻🔧", token, connected:true, deck: resolveDeck(m.deck) };
       ws.roomCode = room.code; ws.seat = "B";
       send(ws, { type:"joined", code: room.code, token });
       send(room.seats.A.ws, { type:"guestJoined", name: room.seats.B.name });
@@ -465,8 +504,8 @@ wss.on("connection", (ws) => {
       const code = genCode();
       const room = makeRoom(code, true);
       const token = genToken();
-      room.seats.A = { ws, name: cleanName(m.name) || "でんこう⚡", token, connected:true };
-      room.seats.B = { ws:null, name:"CPU🤖", token:null, connected:true, isCpu:true };
+      room.seats.A = { ws, name: cleanName(m.name) || "でんこう⚡", token, connected:true, deck: resolveDeck(m.deck) };
+      room.seats.B = { ws:null, name:"CPU🤖", token:null, connected:true, isCpu:true, deck: randomValidDeck() };
       rooms.set(code, room);
       ws.roomCode = code; ws.seat = "A";
       send(ws, { type:"created", code, token, solo:true });
