@@ -18,7 +18,7 @@ const MULLIGAN_MS = 25000;          // マリガン制限時間
 const RECONNECT_GRACE_MS = 120000;  // 再接続猶予：2分
 
 /* ==================== 静的ファイル配信 (public/) ==================== */
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".wav": "audio/wav" };
 const server = http.createServer((req, res) => {
   const reqUrl = req.url.split("?")[0];
 

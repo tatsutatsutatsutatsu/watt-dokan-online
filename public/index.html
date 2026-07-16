@@ -509,12 +509,23 @@ $("btnDeckSave").onclick=()=>{
 };
 updateActiveDeckInfo();
 
-/* ============ サウンド（Web Audioで自作チップチューンを生成・音源ファイル不要） ============ */
+/* ============ サウンド（効果音：Web Audioで自作チップチューン／BGM：自作音声ファイル2曲） ============ */
 const Snd=(()=>{
-  let ctx=null,muted=false,timer=null,step=0,nextT=0;
+  let ctx=null,muted=false;
   const mf=n=>440*Math.pow(2,(n-69)/12); // MIDIノート→周波数
+  const BGM_VOL=0.5, BGM_FADE=0.2; // BGM用ゲイン・クロスフェード秒数（効果音とは独立）
+  const BGM_FILES={battle:"bgm_battle.wav",pinch:"bgm_pinch.wav"};
+  let bgmMuteGain=null; // BGM専用ミュートバス（🔊ボタンで効果音・BGM双方に効かせる）
+  let bgmBuffers={battle:null,pinch:null};
+  let bgmLoadPromise=null;
+  let bgmSource=null,bgmSourceGain=null,bgmTrack=null; // 現在再生中のトラック
   function ac(){
-    if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();
+    if(!ctx){
+      ctx=new (window.AudioContext||window.webkitAudioContext)();
+      bgmMuteGain=ctx.createGain();
+      bgmMuteGain.gain.value=muted?0:1;
+      bgmMuteGain.connect(ctx.destination);
+    }
     if(ctx.state==="suspended")ctx.resume();
     return ctx;
   }
@@ -535,27 +546,70 @@ const Snd=(()=>{
     s.buffer=buf;g.gain.value=vol;
     s.connect(g).connect(c.destination);s.start(t0);
   }
-  /* --- BGM：Aマイナー・150BPMの自作32ステップループ（0=休符） --- */
-  const SPB=60/150/2;
-  const LEAD=[69,0,72,74,76,0,74,72,69,0,67,69,72,0,74,0,
-              76,0,77,79,81,0,79,77,76,0,74,72,71,0,72,0];
-  const BASS=[45,0,45,0,48,0,48,0,50,0,50,0,52,0,52,0,
-              45,0,45,0,48,0,48,0,50,0,52,0,43,0,45,0];
-  function sched(){
+  /* --- BGM：短いループ音声2曲（バトル／ピンチ）を AudioBufferSourceNode でギャップレスループ再生 --- */
+  async function fetchDecode(url){
     const c=ac();
-    while(nextT<c.currentTime+0.12){
-      const l=LEAD[step],b=BASS[step];
-      if(l)tone(mf(l),nextT,SPB*0.9,"square",0.05);
-      if(b)tone(mf(b),nextT,SPB*1.7,"triangle",0.11);
-      if(step%8===0)noise(nextT,0.03,0.05); /* ハイハット風 */
-      step=(step+1)%LEAD.length;nextT+=SPB;
-    }
+    const res=await fetch(url);
+    const arrbuf=await res.arrayBuffer();
+    return await c.decodeAudioData(arrbuf);
   }
+  function preloadBgm(){
+    if(bgmLoadPromise)return bgmLoadPromise;
+    bgmLoadPromise=Promise.all(
+      Object.entries(BGM_FILES).map(([key,url])=>
+        fetchDecode(url).then(buf=>{bgmBuffers[key]=buf;}).catch(()=>{/* 読み込み失敗してもゲームは継続 */})
+      )
+    );
+    return bgmLoadPromise;
+  }
+  function playTrack(name){
+    const c=ac();
+    const buf=bgmBuffers[name];
+    if(!buf)return; // 未ロード（失敗 or まだデコード中）なら何もしない
+    const now=c.currentTime;
+    if(bgmSource){
+      const oldSrc=bgmSource,oldGain=bgmSourceGain;
+      oldGain.gain.cancelScheduledValues(now);
+      oldGain.gain.setValueAtTime(oldGain.gain.value,now);
+      oldGain.gain.linearRampToValueAtTime(0,now+BGM_FADE);
+      setTimeout(()=>{try{oldSrc.stop();}catch{}},BGM_FADE*1000+50);
+    }
+    const src=c.createBufferSource();
+    src.buffer=buf;src.loop=true;
+    const g=c.createGain();
+    g.gain.setValueAtTime(0,now);
+    g.gain.linearRampToValueAtTime(BGM_VOL,now+BGM_FADE);
+    src.connect(g).connect(bgmMuteGain);
+    src.start(now);
+    bgmSource=src;bgmSourceGain=g;bgmTrack=name;
+  }
+  function stopTrack(){
+    if(!bgmSource)return;
+    const c=ac(),now=c.currentTime;
+    const oldSrc=bgmSource,oldGain=bgmSourceGain;
+    oldGain.gain.cancelScheduledValues(now);
+    oldGain.gain.setValueAtTime(oldGain.gain.value,now);
+    oldGain.gain.linearRampToValueAtTime(0,now+BGM_FADE);
+    setTimeout(()=>{try{oldSrc.stop();}catch{}},BGM_FADE*1000+50);
+    bgmSource=null;bgmSourceGain=null;bgmTrack=null;
+  }
+  /* --- 効果音：Aマイナー・150BPMの自作32ステップループ（0=休符）は廃止し、上記のbgm_battle/bgm_pinchに置き換え --- */
   return{
-    unlock(){ac()}, /* ブラウザの自動再生制限解除（クリック時に呼ぶ） */
-    startBgm(){if(timer)return;const c=ac();step=0;nextT=c.currentTime+0.05;timer=setInterval(sched,30)},
-    stopBgm(){clearInterval(timer);timer=null},
-    toggle(){muted=!muted;return muted},
+    unlock(){ac();preloadBgm();}, /* ブラウザの自動再生制限解除（クリック時に呼ぶ）。プリロードもここで確実化 */
+    preload(){preloadBgm();},
+    startBgm(){playTrack("battle");}, /* 常にバトルBGMから開始（ピンチ状態もリセット） */
+    setBgmTrack(name){ if(bgmTrack!==name) playTrack(name); },
+    stopBgm(){stopTrack();},
+    toggle(){
+      muted=!muted;
+      if(bgmMuteGain){
+        const c=ac(),now=c.currentTime;
+        bgmMuteGain.gain.cancelScheduledValues(now);
+        bgmMuteGain.gain.setValueAtTime(bgmMuteGain.gain.value,now);
+        bgmMuteGain.gain.linearRampToValueAtTime(muted?0:1,now+0.05);
+      }
+      return muted;
+    },
     place(){const t=ac().currentTime;tone(660,t,.07,"square",.12);tone(990,t+.07,.09,"square",.12)},
     attack(){const t=ac().currentTime;noise(t,.12,.25);tone(110,t,.12,"square",.2)},
     dmg(){const t=ac().currentTime;tone(330,t,.08,"sawtooth",.15);tone(220,t+.08,.12,"sawtooth",.15)},
@@ -565,6 +619,7 @@ const Snd=(()=>{
     lose(){this.stopBgm();const t=ac().currentTime;[392,370,349,330].forEach((f,i)=>tone(f,t+i*.18,.3,"triangle",.15));noise(t+.7,.4,.3)},
   };
 })();
+Snd.preload(); /* ページ読み込み時に両BGMをプリロード（デコードまで）しておく */
 
 /* ============ セッション保存（再接続用） ============ */
 const SESSION_KEY="wattdokan_session_v1";
@@ -576,7 +631,7 @@ const clearSession=()=>{try{localStorage.removeItem(SESSION_KEY);}catch{}};
 let ws, seat=null, myName="でんこう";
 let snap=null;                 // 直近に描画したスナップショット（サーバー権威）
 let selHand=-1, selUnit=-1, spellMode=null;
-let lastGameId=-1, lastSeenEventId=-1, ended=false, bgmStarted=false;
+let lastGameId=-1, lastSeenEventId=-1, ended=false, bgmStarted=false, bgmPinch=false;
 let rematchWaiting=false, oppWantsRematch=false;
 let animQueue=Promise.resolve();
 let suppressNextClick=false;
@@ -698,7 +753,7 @@ function onState(newSnap){
   if(isNewGame){
     lastGameId=newSnap.gameId; lastSeenEventId=-1;
     animQueue=Promise.resolve();
-    ended=false; rematchWaiting=false; oppWantsRematch=false; bgmStarted=false;
+    ended=false; rematchWaiting=false; oppWantsRematch=false; bgmStarted=false; bgmPinch=false;
     $("overlay").classList.remove("show");
     $("log").innerHTML="";
     clearSel();
@@ -718,7 +773,16 @@ function commitSnap(newSnap){
   clearSel();
   msg(snap.msg);
   $("log").innerHTML=(snap.log||[]).map(t=>`<div>${t}</div>`).join("");
+  updateBgmPinch();
   render();
+}
+/* 自リーダーのHPに応じてバトルBGM／ピンチBGMを切り替える（決着後は切り替えない） */
+function updateBgmPinch(){
+  if(!snap||!snap.me||snap.phase!=="battle")return;
+  const pinch=snap.me.hp<=10;
+  if(pinch===bgmPinch)return;
+  bgmPinch=pinch;
+  Snd.setBgmTrack(pinch?"pinch":"battle");
 }
 
 /* ---- 演出：攻撃モーション／ダメージポップ／破壊エフェクト ---- */
