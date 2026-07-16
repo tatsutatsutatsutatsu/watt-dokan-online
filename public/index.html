@@ -130,7 +130,7 @@
   .card.mulliSel::after{content:"交換";position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);background:var(--danger);color:#14161a;font-size:.55rem;padding:1px 5px;border-radius:5px}
   .card .cost{position:absolute;top:-7px;left:-5px;background:var(--safety);color:#14161a;border-radius:6px;padding:1px 4px;font-size:.62rem}
   .card .em{font-size:1.6rem}
-  .card .nm{line-height:1.1}
+  .card .nm{line-height:1.1;overflow:hidden;max-height:2.2em}
   .card .tx{opacity:.75;line-height:1.25;font-size:.52rem;min-height:2.4em}
   .card .st{display:flex;justify-content:space-between;width:100%;padding:0 5px;font-size:.78rem}
   .card .atk{color:var(--safety)} .card .hp2{color:var(--pilot)} .card .sp{color:var(--cyan);font-size:.62rem}
@@ -296,7 +296,10 @@
     <p><b>キーワード</b><br>
       <span class="kw">🛡️守護</span>：味方の他の家電より先に攻撃を受け止める<br>
       <span class="kw">👟疾走</span>：設置したターンからリーダーにも攻撃可能<br>
-      <span class="kw">💢突進</span>：設置したターンに家電を攻撃可能（リーダー攻撃は不可）
+      <span class="kw">💢突進</span>：設置したターンに家電を攻撃可能（リーダー攻撃は不可）<br>
+      <span class="kw">💀ラストワード</span>：この家電が破壊されたとき効果が発動する<br>
+      <span class="kw">🩸ドレイン</span>：この家電が攻撃でダメージを与えたとき、与えた分だけ自リーダーを回復（上限20）<br>
+      <span class="kw">☠️必殺</span>：この家電の攻撃でダメージを受けた敵の家電は、体力が残っていても破壊される
     </p>
     <p><b>進化</b><br>先攻は5ターン目からEP2、後攻は4ターン目からEP3を獲得。盤面の家電1体を進化させると+2/+2され、突進と同様に設置済みでもその場で攻撃可能になる。</p>
     <p><b>マリガン</b><br>対戦開始時、手札から交換したいカードを選んで引き直せる（制限時間25秒、1回のみ）。</p>
@@ -323,6 +326,7 @@
 <script>
 /* ============ 表示専用の定数（ルール権威はサーバー側） ============ */
 const MAXW=1000, BOARD_MAX=4;
+const KW_ICON={"守護":"🛡️","疾走":"👟","突進":"💢","ラストワード":"💀","ドレイン":"🩸","必殺":"☠️"};
 const $=id=>document.getElementById(id);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -914,7 +918,7 @@ function unitEl(u,mine,i){
   const d=document.createElement("div");
   d.className="unit"+(u.evolved?" evolved":"");
   d.dataset.id=u.id;
-  d.innerHTML=`${u.kw?`<span class="kw">${u.kw==="守護"?"🛡️":u.kw==="疾走"?"👟":"💢"}</span>`:""}
+  d.innerHTML=`${u.kw?`<span class="kw">${KW_ICON[u.kw]||""}</span>`:""}
     <span class="em">${u.e}${u.evolved?"✨":""}</span><span class="nm">${u.n}</span>
     <span class="st"><span class="atk">${u.a}</span><span class="hp2 ${u.hp<u.maxhp?"dmg":""}">${u.hp}</span></span>`;
   if(mine){

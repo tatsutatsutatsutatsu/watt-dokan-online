@@ -61,18 +61,36 @@ const POOL = [
  {id:"solar",n:"ソーラーパネル",e:"☀️",c:400,t:"s",fx:"ramp",tx:"最大電力を+200W"},
  {id:"breaker",n:"漏電遮断器",e:"🔌",c:600,t:"s",fx:"kill",tg:1,tx:"敵の家電1台を遮断（破壊）"},
  {id:"surge",n:"雷サージ",e:"🌩️",c:800,t:"s",fx:"aoe3",tx:"敵の家電全体に3ダメージ"},
+ {id:"fuse",n:"ヒューズ",e:"🔩",c:200,t:"f",a:1,h:2,kw:"ラストワード",lw:"draw1",tx:"ラストワード：カードを1枚引く"},
+ {id:"capacitor",n:"コンデンサ",e:"⚡",c:400,t:"f",a:2,h:3,kw:"ラストワード",lw:"dmg2rand",tx:"ラストワード：ランダムな敵フォロワー1体に2ダメージ"},
+ {id:"generator",n:"予備発電機",e:"⛽",c:500,t:"f",a:3,h:3,kw:"ラストワード",lw:"heal2",tx:"ラストワード：自リーダーを2回復"},
+ {id:"megger",n:"メガー(絶縁抵抗計)",e:"📟",c:500,t:"f",a:2,h:2,kw:"必殺",tx:"必殺：この家電の攻撃でダメージを受けた敵は破壊される"},
+ {id:"charge_station",n:"充電ステーション",e:"🔌",c:600,t:"f",a:4,h:4,kw:"ドレイン",tx:"ドレイン：攻撃で与えたダメージ分、自リーダーを回復"},
+ {id:"kickboard",n:"電動キックボード",e:"🛴",c:400,t:"f",a:2,h:2,kw:"疾走",tx:"疾走：設置ターンからリーダーも攻撃可"},
+ {id:"panelboard",n:"分電盤",e:"🗄️",c:600,t:"f",a:3,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める"},
+ {id:"lightning_rod",n:"避雷針",e:"📡",c:200,t:"f",a:1,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める"},
+ {id:"voltage_transformer",n:"変圧器",e:"🔃",c:700,t:"f",a:3,h:3,fx:"buffall1atk",tx:"ファンファーレ：味方フォロワー全体を+1/+0"},
+ {id:"solar_plant",n:"太陽光発電所",e:"🌞",c:900,t:"f",a:6,h:6,fx:"ramp",tx:"ファンファーレ：最大電力を+200W"},
+ {id:"electrician1",n:"第一種電気工事士",e:"👷",c:1000,t:"f",a:7,h:7,fx:"aoe2",tx:"ファンファーレ：敵フォロワー全体に2ダメージ"},
+ {id:"octopus_wiring",n:"タコ足配線",e:"🐙",c:300,t:"s",fx:"tacoashi",tx:"コンセント(1/1・効果なし)を2体設置（盤面上限4は超えない）"},
 ];
 const POOL_BY_ID = new Map(POOL.map(c => [c.id, c]));
+const TOKEN_OUTLET = { n:"コンセント", e:"🔌", c:0, t:"f", a:1, h:1, tx:"" };
 const MAXW = 1000, BOARD_MAX = 4, HAND_MAX = 8;
 const EVO = { A:{turn:5,ep:2}, B:{turn:4,ep:3} }; // 先攻:5T/EP2 後攻:4T/EP3
 
 /* ==================== デッキ構築 ==================== */
 const DECK_SIZE = 20;
-/* デフォルトデッキ：全18種を1枚ずつ＋序盤の安定カード(led/charger)をもう1枚ずつで20枚。不正デッキの代替として使用。 */
+/* デフォルトデッキ：30種のカードプールからバランス良く20枚を採用。不正デッキの代替として使用。 */
 const DEFAULT_DECK = [
-  "led","led","charger","charger","fan","tester","fridge","drill",
-  "ground","short","wiring","solar","washer","microwave","breaker",
-  "dryer","aircon","surge","cubicle","transformer",
+  "led","led","charger","fuse","fuse","ground",
+  "fridge","drill","short","wiring",
+  "capacitor","capacitor","kickboard",
+  "megger","generator",
+  "charge_station","panelboard",
+  "voltage_transformer",
+  "solar_plant",
+  "electrician1",
 ];
 function validateDeck(idsRaw) {
   if (!Array.isArray(idsRaw) || idsRaw.length !== DECK_SIZE) return null;
@@ -162,6 +180,44 @@ function fanfare(G, s, e, card) {
   if (card.fx === "heal3") s.hp = Math.min(20, s.hp + 3);
   if (card.fx === "ramp") s.maxW = Math.min(MAXW, s.maxW + 200);
   if (card.fx === "aoe3") e.board.forEach(u => u.hp -= 3);
+  if (card.fx === "aoe2") e.board.forEach(u => u.hp -= 2);
+  if (card.fx === "buffall1atk") s.board.forEach(u => u.a += 1);
+  if (card.fx === "tacoashi") {
+    const n = Math.min(2, BOARD_MAX - s.board.length);
+    for (let i=0;i<n;i++) summon(G, s, TOKEN_OUTLET);
+  }
+}
+/* ---- ラストワード：死亡ユニットの効果発動（連鎖対応・上限カウンタ付き） ---- */
+function triggerLastword(G, seatX, u) {
+  const s = G.S[seatX], e = G.S[other(seatX)];
+  if (u.lw === "draw1") {
+    drawN(G, seatX, 1);
+    setMsg(G, `${G.names[seatX]}：${u.n}のラストワード発動！💀 カードを1枚引いた`);
+  }
+  else if (u.lw === "dmg2rand") {
+    if (e.board.length) {
+      const t = e.board[Math.floor(Math.random() * e.board.length)];
+      t.hp -= 2;
+      setMsg(G, `${G.names[seatX]}：${u.n}のラストワード発動！💀 ${t.n}に2ダメージ`);
+    }
+  }
+  else if (u.lw === "heal2") {
+    s.hp = Math.min(20, s.hp + 2);
+    setMsg(G, `${G.names[seatX]}：${u.n}のラストワード発動！💀 自リーダーを2回復`);
+  }
+}
+function processDeaths(room) {
+  const G = room.G;
+  let guard = 0;
+  while (guard++ < 50) {
+    const deadA = G.S.A.board.filter(u => u.hp <= 0).map(u => ({ u, seatX:"A" }));
+    const deadB = G.S.B.board.filter(u => u.hp <= 0).map(u => ({ u, seatX:"B" }));
+    const dead = [...deadA, ...deadB];
+    if (!dead.length) break;
+    G.S.A.board = G.S.A.board.filter(u => u.hp > 0);
+    G.S.B.board = G.S.B.board.filter(u => u.hp > 0);
+    dead.forEach(({ u, seatX }) => { if (u.kw === "ラストワード") triggerLastword(G, seatX, u); });
+  }
 }
 function snapshotHP(G) {
   const m = { leaderA: G.S.A.hp, leaderB: G.S.B.hp };
@@ -289,14 +345,23 @@ function applyAction(room, seatX, act) {
     const guards = op.board.filter(x => x.kw === "守護");
     if (act.target === "leader") {
       if (guards.length || u.rushOnly) return;
-      u.canAtk = false; op.hp -= u.a;
-      setMsg(G, `${nm}：${u.n}がリーダーに${u.a}ダメージ！💥`);
+      u.canAtk = false;
+      const dmg = u.a;
+      op.hp -= dmg;
+      let atkMsg = `${nm}：${u.n}がリーダーに${dmg}ダメージ！💥`;
+      if (u.kw === "ドレイン" && dmg > 0) { me.hp = Math.min(20, me.hp + dmg); atkMsg += `（🩸ドレインで${dmg}回復）`; }
+      setMsg(G, atkMsg);
       evType = "attack"; evMeta = { seat:seatX, unitId:u.id, targetSeat: other(seatX), targetLeader:true };
     } else {
       const t = op.board[act.ti]; if (!t) return;
       if (guards.length && t.kw !== "守護") return;
-      u.canAtk = false; t.hp -= u.a; u.hp -= t.a;
-      setMsg(G, `${nm}：${u.n} ⚔ ${t.n}`);
+      u.canAtk = false;
+      const dmgToT = u.a, dmgToU = t.a;
+      t.hp -= dmgToT; u.hp -= dmgToU;
+      let atkMsg = `${nm}：${u.n} ⚔ ${t.n}`;
+      if (u.kw === "ドレイン" && dmgToT > 0) { me.hp = Math.min(20, me.hp + dmgToT); atkMsg += `（🩸ドレインで${dmgToT}回復）`; }
+      if (u.kw === "必殺" && dmgToT > 0) { t.hp = -1; atkMsg += `（☠️必殺で撃破）`; }
+      setMsg(G, atkMsg);
       evType = "attack"; evMeta = { seat:seatX, unitId:u.id, targetSeat: other(seatX), targetUnitId:t.id };
     }
   }
@@ -306,8 +371,7 @@ function applyAction(room, seatX, act) {
   }
   else return;
 
-  G.S.A.board = G.S.A.board.filter(u => u.hp > 0);
-  G.S.B.board = G.S.B.board.filter(u => u.hp > 0);
+  processDeaths(room);
   if (!G.result && (G.S.A.hp <= 0 || G.S.B.hp <= 0)) {
     G.result = G.S.A.hp <= 0 ? "B" : "A";
     G.phase = "over"; G.deadline = null;
