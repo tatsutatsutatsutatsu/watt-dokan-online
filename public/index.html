@@ -51,6 +51,7 @@
   .cr-stat{opacity:.85;font-size:.62rem}
   .cr-stat .atk{color:var(--safety)} .cr-stat .hp2{color:var(--pilot)}
   .cr-tx{opacity:.6;font-size:.6rem;line-height:1.4}
+  .cr-type{color:var(--cyan);font-size:.58rem;opacity:.8;border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-left:4px}
 
   .rulesbox p{margin-bottom:8px}
   .rulesbox b{color:var(--safety)}
@@ -175,6 +176,7 @@
   .cdbox .nm{font-size:1.15rem}
   .cdbox .cost{color:var(--safety);font-size:1rem}
   .cdbox .kw{color:var(--copper);font-size:.85rem}
+  .cdbox .type{color:var(--cyan);font-size:.72rem;opacity:.85;border:1px solid var(--line);border-radius:6px;padding:1px 8px}
   .cdbox .st{display:flex;gap:24px;font-size:1.5rem}
   .cdbox .tx{font-size:.72rem;opacity:.85;line-height:1.7}
   .cdbox .sp{color:var(--cyan)}
@@ -378,7 +380,7 @@ function cardRowHTML(card){
       <span class="cr-name">${card.n}${card.kw?` <span class="cr-kw">(${card.kw})</span>`:""}</span>
       <span class="cr-cost">${card.c}W</span>
     </div>
-    <div class="cr-stat">${statHtml}</div>
+    <div class="cr-stat">${statHtml}${card.type?` <span class="cr-type">${card.type}</span>`:""}</div>
     ${card.tx?`<div class="cr-tx">${card.tx}</div>`:""}
   `;
 }
@@ -865,6 +867,7 @@ function openCardDetail(card){
     <span class="em">${card.e}</span>
     <span class="nm">${card.n}</span>
     ${card.c!==undefined?`<span class="cost">${card.c}W</span>`:""}
+    ${card.type?`<span class="type">${card.type}</span>`:""}
     ${card.kw?`<span class="kw">${card.kw}</span>`:""}
     ${card.t==="s"?'<span class="sp">スペル</span>':`<span class="st"><span class="atk">⚡${card.a}</span><span class="hp2">❤${hpVal}</span></span>`}
     <span class="tx">${card.tx||""}</span>`;
