@@ -814,11 +814,19 @@ function tapEnemyUnit(i){
   if(!snap.yourTurn)return;
   if(spellMode){doAction({a:"play",hand:selHand,ti:i});return}
   if(selUnit<0)return;
-  if(!enemyTargetable(snap.opp.board[i])){msg("🛡️守護が邪魔で攻撃できない！");return}
+  const a=snap.me.board[selUnit];
+  if(!a||!a.canAtk){msg(`${a?a.n:""}はこのターン攻撃できない`);return}
+  const guards=snap.opp.board.filter(x=>x.kw==="守護");
+  const t=snap.opp.board[i];
+  if(guards.length&&t.kw!=="守護"){msg("🛡️守護が邪魔で攻撃できない！");return}
   doAction({a:"attack",i:selUnit,ti:i});
 }
 $("oFace").onclick=()=>{
-  if(!leaderTargetable())return;
+  if(!snap||!snap.yourTurn||spellMode!==null||selUnit<0)return;
+  const a=snap.me.board[selUnit];
+  if(!a||!a.canAtk){msg(`${a?a.n:""}はこのターン攻撃できない`);return}
+  if(a.rushOnly){msg("💢突進はリーダーを攻撃できない");return}
+  if(snap.opp.board.some(x=>x.kw==="守護")){msg("🛡️守護が邪魔で攻撃できない！");return}
   doAction({a:"attack",i:selUnit,target:"leader"});
 };
 $("btnEnd").onclick=()=>{if(snap&&snap.yourTurn){clearSel();doAction({a:"end"})}};
