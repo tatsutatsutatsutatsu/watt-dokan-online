@@ -83,6 +83,10 @@
     .sidepanel.right{margin:12px 12px 12px 0}
     .sidepanel:not(.open){display:none}
     .game{padding-top:8px} /* 広い画面ではトグルボタンがサイド列にあり中央と重ならないため元に戻す */
+    /* 広い画面では従来レイアウト（電力を右端表示・.sub行の統合表示は隠す）を維持。
+       ベースの .leader .wtxt-side{display:none} より後方かつ同一詳細度だと打ち消せないため詳細度を上げる */
+    .game .leader .wtxt-side{display:block}
+    .game .leader .wtxt-inline{display:none}
   }
 
   .leader{display:flex;align-items:center;gap:8px;background:var(--panel);border:2px solid var(--line);border-radius:8px;padding:6px 10px;font-size:.8rem}
@@ -91,6 +95,8 @@
   .leader.targetable{border-color:var(--danger);box-shadow:0 0 8px var(--danger);cursor:pointer}
   .leader .hp{font-size:1.2rem;color:var(--pilot)} .leader .hp.low{color:var(--danger)}
   .leader .sub{opacity:.75;font-size:.68rem;line-height:1.5}
+  /* 狭い画面：電力表示はリーダーバー右端の独立表示をやめ、.sub行に統合する（ボタンとの重なり回避） */
+  .leader .wtxt-side{display:none}
   .orbs{display:flex;gap:2px;margin-top:2px}
   .orb{width:10px;height:14px;border-radius:3px;border:1px solid var(--line);background:#0e1013}
   .orb.on{background:var(--safety);border-color:var(--safety)}
@@ -266,10 +272,10 @@
     <div class="face" id="oFace">🔌</div>
     <div style="flex:1">
       <div><span id="oName">相手</span>　<span class="hp" id="oHp">20</span> ❤ <span class="turnbadge" id="oTurn">相手のターン</span></div>
-      <div class="sub">手札 <span id="oHandN">0</span>枚 ／ EP <span class="ep" id="oEp">-</span> ／ 山札 <span id="oDeckN">-</span></div>
+      <div class="sub">手札 <span id="oHandN">0</span>枚 ／ EP <span class="ep" id="oEp">-</span> ／ 山札 <span id="oDeckN">-</span><span class="wtxt-inline"> ／ ⚡<span id="oWtxtInline">0/0W</span></span></div>
       <div class="orbs" id="oOrbs"></div>
     </div>
-    <div class="sub" id="oWtxt">0/0W</div>
+    <div class="sub wtxt-side" id="oWtxt">0/0W</div>
   </div>
 
   <div class="oppbanner" id="oppBanner"></div>
@@ -293,10 +299,10 @@
       <div class="face" id="mFace">👷</div>
       <div style="flex:1">
         <div><span id="mName">あなた</span>　<span class="hp" id="mHp">20</span> ❤ <span class="turnbadge" id="mTurn">あなたのターン</span> <span class="timerbadge" id="timerTxt"></span></div>
-        <div class="sub">EP <span class="ep" id="mEp">2</span> ／ 山札 <span id="mDeckN">-</span></div>
+        <div class="sub">EP <span class="ep" id="mEp">2</span> ／ 山札 <span id="mDeckN">-</span><span class="wtxt-inline"> ／ ⚡<span id="mWtxtInline">0/0W</span></span></div>
         <div class="orbs" id="mOrbs"></div>
       </div>
-      <div class="sub" id="mWtxt">0/0W</div>
+      <div class="sub wtxt-side" id="mWtxt">0/0W</div>
     </div>
     <button class="ghost" id="btnBgm" style="flex:0 0 auto" title="サウンドON/OFF">🔊</button>
     <button class="ghost retirebtn" id="btnRetire" style="flex:0 0 auto" title="リタイア">🏳️</button>
@@ -1132,6 +1138,7 @@ function render(){
   $("mHp").className="hp"+(snap.me.hp<=6?" low":"");$("oHp").className="hp"+(snap.opp.hp<=6?" low":"");
   $("mEp").textContent=snap.me.ep;$("oEp").textContent=snap.opp.ep;
   $("mWtxt").textContent=`${snap.me.w}/${snap.me.maxW}W`;$("oWtxt").textContent=`${snap.opp.w}/${snap.opp.maxW}W`;
+  $("mWtxtInline").textContent=`${snap.me.w}/${snap.me.maxW}W`;$("oWtxtInline").textContent=`${snap.opp.w}/${snap.opp.maxW}W`;
   $("mDeckN").textContent=snap.me.deckN;$("oDeckN").textContent=snap.opp.deckN;
   $("oHandN").textContent=snap.opp.handN;
   $("mTurn").classList.toggle("on",snap.yourTurn);
