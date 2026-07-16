@@ -88,6 +88,7 @@
   .leader{display:flex;align-items:center;gap:8px;background:var(--panel);border:2px solid var(--line);border-radius:8px;padding:6px 10px;font-size:.8rem}
   .leader .face{font-size:1.5rem;width:44px;height:44px;border:2px solid var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;background:var(--panel2)}
   .leader .face.targetable{border-color:var(--danger);box-shadow:0 0 8px var(--danger);cursor:pointer}
+  .leader.targetable{border-color:var(--danger);box-shadow:0 0 8px var(--danger);cursor:pointer}
   .leader .hp{font-size:1.2rem;color:var(--pilot)} .leader .hp.low{color:var(--danger)}
   .leader .sub{opacity:.75;font-size:.68rem;line-height:1.5}
   .orbs{display:flex;gap:2px;margin-top:2px}
@@ -146,7 +147,8 @@
   button:disabled{opacity:.35;cursor:default}
   button:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
   .footrow{display:flex;gap:8px;align-items:stretch}
-  .footrow .leader{flex:1}
+  .footrow .leader{flex:1;min-width:0}
+  .retirebtn{font-size:.75rem;padding:8px}
   .log{font-size:.62rem;opacity:.6;max-height:4.5em;overflow-y:auto;line-height:1.6;padding:0 4px}
 
   /* ---- ロビー ---- */
@@ -174,6 +176,8 @@
 
   .overlay{position:fixed;inset:0;background:rgba(10,12,15,.85);display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:10;text-align:center;padding:20px}
   .overlay.show{display:flex}
+  .overlay.retireconfirm{z-index:65}
+  .overlay.retireconfirm h2{font-size:1.6rem}
   .overlay h2{font-size:2.2rem;color:var(--safety);font-weight:normal}
   .overlay h2.lose{color:var(--danger)}
   .overlay p{font-size:.85rem;opacity:.8;line-height:1.8}
@@ -258,7 +262,7 @@
 
 <!-- ============ ゲーム画面 ============ -->
 <div class="game" id="game">
-  <div class="leader">
+  <div class="leader" id="oLeader">
     <div class="face" id="oFace">🔌</div>
     <div style="flex:1">
       <div><span id="oName">相手</span>　<span class="hp" id="oHp">20</span> ❤ <span class="turnbadge" id="oTurn">相手のターン</span></div>
@@ -295,6 +299,7 @@
       <div class="sub" id="mWtxt">0/0W</div>
     </div>
     <button class="ghost" id="btnBgm" style="flex:0 0 auto" title="サウンドON/OFF">🔊</button>
+    <button class="ghost retirebtn" id="btnRetire" style="flex:0 0 auto" title="リタイア">🏳️</button>
     <button id="btnEnd">ターン<br>終了</button>
   </div>
   <div class="log" id="log"></div>
@@ -335,6 +340,15 @@
 
 <div class="carddetail" id="cardDetail">
   <div class="cdbox" id="cdBox"></div>
+</div>
+
+<div class="overlay retireconfirm" id="retireOverlay">
+  <h2>投了確認</h2>
+  <p>リタイアしますか？この対戦は負けになります。</p>
+  <div class="btnrow">
+    <button id="btnRetireConfirm">🏳️ リタイアする</button>
+    <button class="ghost" id="btnRetireCancel">やめる</button>
+  </div>
 </div>
 
 <div class="soundmodal show" id="soundModal">
@@ -936,7 +950,10 @@ function tapMyUnit(i){
   const u=snap.me.board[i];
   selUnit=i;selHand=-1;
   let m=`<b>${u.n}</b>を選択中`;
-  if(u.canAtk)m+="：攻撃対象をタップ";
+  if(u.canAtk){
+    m+="：攻撃対象をタップ";
+    if(leaderTargetable())m+=` <button class="ghost" onclick="doAttackLeader()">⚔ リーダーを攻撃</button>`;
+  }
   if(snap.me.canEvolve&&!u.evolved)m+=` <button class="ghost" onclick="doEvolve(${i})">✨進化(+2/+2)</button>`;
   if(!u.canAtk&&!(snap.me.canEvolve&&!u.evolved))m=`${u.n}はこのターン攻撃できない`;
   msg(m);render();
@@ -954,16 +971,18 @@ function tapEnemyUnit(i){
   if(guards.length&&t.kw!=="守護"){msg("🛡️守護が邪魔で攻撃できない！");return}
   doAction({a:"attack",i:selUnit,ti:i});
 }
-$("oFace").onclick=()=>{
+function attackLeaderTap(){
   if(!snap||!snap.yourTurn||spellMode!==null||selUnit<0)return;
   const a=snap.me.board[selUnit];
   if(!a||!a.canAtk){msg(`${a?a.n:""}はこのターン攻撃できない`);return}
   if(a.rushOnly){msg("💢突進はリーダーを攻撃できない");return}
   if(snap.opp.board.some(x=>x.kw==="守護")){msg("🛡️守護が邪魔で攻撃できない！");return}
   doAction({a:"attack",i:selUnit,target:"leader"});
-};
+}
+window.doAttackLeader=attackLeaderTap;
+$("oFace").onclick=attackLeaderTap;
+$("oLeader").onclick=attackLeaderTap;
 $("btnEnd").onclick=()=>{if(snap&&snap.yourTurn){clearSel();doAction({a:"end"})}};
-$("btnBgm").onclick=()=>{$("btnBgm").textContent=Snd.toggle()?"🔇":"🔊"};
 
 /* ---- マリガン ---- */
 let mulliSelected=new Set();
@@ -1000,6 +1019,17 @@ $("btnRematch").onclick=()=>{
   updateResultOverlay();
 };
 $("btnBackLobby").onclick=()=>{clearSession();location.reload();};
+
+/* ---- リタイア（投了） ---- */
+$("btnRetire").onclick=()=>{
+  if(!snap||snap.phase==="over")return;
+  $("retireOverlay").classList.add("show");
+};
+$("btnRetireCancel").onclick=()=>{$("retireOverlay").classList.remove("show");};
+$("btnRetireConfirm").onclick=()=>{
+  $("retireOverlay").classList.remove("show");
+  doAction({a:"retire"});
+};
 
 /* ---- カード詳細（長押し／右クリック） ---- */
 function openCardDetail(card){
@@ -1125,7 +1155,9 @@ function render(){
   }
 
   $("oFace").classList.toggle("targetable",leaderTargetable());
+  $("oLeader").classList.toggle("targetable",leaderTargetable());
   $("btnEnd").disabled=!snap.yourTurn;
+  $("btnRetire").disabled=snap.phase==="over";
 
   updateResultOverlay();
 }

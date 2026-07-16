@@ -304,6 +304,18 @@ function applyMulligan(room, seatX, idxRaw) {
   broadcast(room);
 }
 
+function applyRetire(room, seatX) {
+  const G = room.G;
+  if (!G || G.result || (G.phase !== "battle" && G.phase !== "mulligan")) return;
+  G.result = other(seatX);
+  G.phase = "over"; G.deadline = null;
+  clearTurnTimer(room); clearMulliganTimer(room);
+  armOverTimer(room);
+  setMsg(G, `${G.names[seatX]}がリタイアした`);
+  pushEvent(G, { type:"retire", seat:seatX, diffs:[], deaths:[] });
+  broadcast(room);
+}
+
 function applyAction(room, seatX, act) {
   const G = room.G;
   if (!G || G.phase !== "battle" || G.result || G.active !== seatX || !act || typeof act !== "object") return;
@@ -599,7 +611,8 @@ wss.on("connection", (ws) => {
       const room = rooms.get(ws.roomCode); if (!room || !room.G) return;
       const seatX = ws.seat; if (!seatX) return;
       const act = m.act || {};
-      if (room.G.phase === "mulligan" && act.a === "mulligan") applyMulligan(room, seatX, act.idx);
+      if (act.a === "retire") applyRetire(room, seatX);
+      else if (room.G.phase === "mulligan" && act.a === "mulligan") applyMulligan(room, seatX, act.idx);
       else if (room.G.phase === "battle") applyAction(room, seatX, act);
     }
 
