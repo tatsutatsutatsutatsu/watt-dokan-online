@@ -160,6 +160,17 @@
   .lobby .note{font-size:.68rem;opacity:.6;line-height:1.8}
   .err{color:var(--danger);font-size:.75rem;min-height:1.2em}
   .hidden{display:none !important}
+  .lobbysound{padding:6px 12px;font-size:.85rem;line-height:1}
+
+  /* ---- サウンド選択モーダル（起動時） ---- */
+  .soundmodal{position:fixed;inset:0;background:rgba(10,12,15,.92);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .soundmodal.show{display:flex}
+  .smbox{width:100%;max-width:340px;border:2px solid var(--line);border-radius:10px;background:var(--panel);padding:24px 20px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
+  .smtitle{color:var(--safety);font-size:1.5rem;line-height:1.5}
+  .smtitle small{display:block;font-size:.6rem;letter-spacing:.3em;opacity:.6;color:var(--label)}
+  .smsub{font-size:.8rem;opacity:.85}
+  .smrow{display:flex;flex-direction:column;gap:10px;width:100%}
+  .smrow button.chosen{box-shadow:0 0 10px var(--safety)}
 
   .overlay{position:fixed;inset:0;background:rgba(10,12,15,.85);display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:10;text-align:center;padding:20px}
   .overlay.show{display:flex}
@@ -202,6 +213,7 @@
 <div class="centercol">
 <!-- ============ ロビー ============ -->
 <div class="lobby" id="lobby">
+  <button class="ghost lobbysound" id="btnBgmLobby" title="サウンドON/OFF">🔊</button>
   <h1>ワットでドカン！<small>CARD BATTLE ONLINE</small></h1>
 
   <div class="box" id="menuBox">
@@ -323,6 +335,17 @@
 
 <div class="carddetail" id="cardDetail">
   <div class="cdbox" id="cdBox"></div>
+</div>
+
+<div class="soundmodal show" id="soundModal">
+  <div class="smbox">
+    <div class="smtitle">⚡ワットでドカン！<small>CARD BATTLE ONLINE</small></div>
+    <div class="smsub">サウンド設定</div>
+    <div class="smrow">
+      <button id="btnSoundOn">🔊 サウンドONで遊ぶ</button>
+      <button class="ghost" id="btnSoundOff">🔇 OFFで遊ぶ</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -514,9 +537,9 @@ const Snd=(()=>{
   let ctx=null,muted=false;
   const mf=n=>440*Math.pow(2,(n-69)/12); // MIDIノート→周波数
   const BGM_VOL=0.5, BGM_FADE=0.2; // BGM用ゲイン・クロスフェード秒数（効果音とは独立）
-  const BGM_FILES={battle:"bgm_battle.wav",pinch:"bgm_pinch.wav"};
+  const BGM_FILES={battle:"bgm_battle.wav",pinch:"bgm_pinch.wav",home:"bgm_home.wav"};
   let bgmMuteGain=null; // BGM専用ミュートバス（🔊ボタンで効果音・BGM双方に効かせる）
-  let bgmBuffers={battle:null,pinch:null};
+  let bgmBuffers={battle:null,pinch:null,home:null};
   let bgmLoadPromise=null;
   let bgmSource=null,bgmSourceGain=null,bgmTrack=null; // 現在再生中のトラック
   function ac(){
@@ -598,10 +621,12 @@ const Snd=(()=>{
     unlock(){ac();preloadBgm();}, /* ブラウザの自動再生制限解除（クリック時に呼ぶ）。プリロードもここで確実化 */
     preload(){preloadBgm();},
     startBgm(){playTrack("battle");}, /* 常にバトルBGMから開始（ピンチ状態もリセット） */
+    startHomeBgm(){playTrack("home");}, /* ロビー用BGM（対戦開始時はstartBgm()呼び出しで自動クロスフェード） */
     setBgmTrack(name){ if(bgmTrack!==name) playTrack(name); },
     stopBgm(){stopTrack();},
-    toggle(){
-      muted=!muted;
+    isMuted(){return muted;},
+    setMuted(v){
+      muted=!!v;
       if(bgmMuteGain){
         const c=ac(),now=c.currentTime;
         bgmMuteGain.gain.cancelScheduledValues(now);
@@ -610,6 +635,7 @@ const Snd=(()=>{
       }
       return muted;
     },
+    toggle(){ return this.setMuted(!muted); },
     place(){const t=ac().currentTime;tone(660,t,.07,"square",.12);tone(990,t+.07,.09,"square",.12)},
     attack(){const t=ac().currentTime;noise(t,.12,.25);tone(110,t,.12,"square",.2)},
     dmg(){const t=ac().currentTime;tone(330,t,.08,"sawtooth",.15);tone(220,t+.08,.12,"sawtooth",.15)},
@@ -620,6 +646,49 @@ const Snd=(()=>{
   };
 })();
 Snd.preload(); /* ページ読み込み時に両BGMをプリロード（デコードまで）しておく */
+
+/* ============ サウンド選択モーダル（起動時の音声解錠を兼ねる） ============ */
+const SOUND_PREF_KEY="wattdokan_sound_pref";
+function loadSoundPref(){ // true=ON, false=OFF, null=未設定（初回）
+  try{
+    const v=localStorage.getItem(SOUND_PREF_KEY);
+    if(v==="on")return true;
+    if(v==="off")return false;
+  }catch{}
+  return null;
+}
+function saveSoundPref(on){ try{ localStorage.setItem(SOUND_PREF_KEY,on?"on":"off"); }catch{} }
+function syncSoundButtons(){
+  const icon=Snd.isMuted()?"🔇":"🔊";
+  $("btnBgm").textContent=icon;
+  $("btnBgmLobby").textContent=icon;
+}
+function toggleSound(){
+  const nowMuted=Snd.toggle();
+  saveSoundPref(!nowMuted);
+  syncSoundButtons();
+}
+$("btnBgm").onclick=toggleSound;
+$("btnBgmLobby").onclick=toggleSound;
+
+(function initSoundModal(){
+  const pref=loadSoundPref();
+  const onIsDefault=pref!==false; // 前回未設定 or ON だった場合はONをデフォルト表示
+  $("btnSoundOn").classList.toggle("chosen",onIsDefault);
+  $("btnSoundOff").classList.toggle("chosen",!onIsDefault);
+  function choose(on){
+    saveSoundPref(on);
+    Snd.setMuted(!on);
+    Snd.unlock(); // ユーザー操作契機でAudioContextをresume
+    syncSoundButtons();
+    $("soundModal").classList.remove("show");
+    if(!snap){ Snd.startHomeBgm(); } // まだロビー（対戦スナップショット未受信）ならホームBGM開始
+    // 再接続で既にゲーム画面の場合は、bgmStarted等の既存フローで既に（サイレントに）
+    // 開始済みのバトル系BGMが、resume()により聞こえるようになる。
+  }
+  $("btnSoundOn").onclick=()=>choose(true);
+  $("btnSoundOff").onclick=()=>choose(false);
+})();
 
 /* ============ セッション保存（再接続用） ============ */
 const SESSION_KEY="wattdokan_session_v1";
