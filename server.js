@@ -24,7 +24,7 @@ const server = http.createServer((req, res) => {
 
   // カードプール表示用データ配信（クライアント側でPOOLをハードコード複製しないための唯一の情報源）
   if (reqUrl === "/cards") {
-    const data = POOL.map(c => ({ id:c.id, n:c.n, e:c.e, c:c.c, t:c.t, a:c.a, h:c.h, kw:c.kw, tx:c.tx }));
+    const data = POOL.map(c => ({ id:c.id, n:c.n, e:c.e, c:c.c, t:c.t, a:c.a, h:c.h, kw:c.kw, tx:c.tx, type:c.type }));
     // no-store：古いレスポンス（idなし時代等）がブラウザキャッシュから返るのを防ぐ
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
     res.end(JSON.stringify(data));
@@ -43,36 +43,36 @@ const server = http.createServer((req, res) => {
 /* ==================== カードプール（コスト＝ワット数、ルール変更なし） ==================== */
 /* id はデッキ構築でカードを特定するための安定した文字列キー。表示内容が変わってもidは変えないこと。 */
 const POOL = [
- {id:"led",n:"LED電球",e:"💡",c:100,t:"f",a:1,h:1,fx:"draw1",tx:"設置時：1枚ドロー"},
- {id:"charger",n:"スマホ充電器",e:"🔋",c:100,t:"f",a:1,h:2,tx:""},
- {id:"fan",n:"扇風機",e:"🌀",c:200,t:"f",a:2,h:1,tx:""},
- {id:"tester",n:"検電器",e:"🖊️",c:200,t:"f",a:1,h:1,kw:"突進",tx:"突進：設置ターンに家電を攻撃可"},
- {id:"fridge",n:"冷蔵庫",e:"🧊",c:300,t:"f",a:2,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める"},
- {id:"drill",n:"電気ドリル",e:"🛠️",c:300,t:"f",a:3,h:2,tx:""},
- {id:"washer",n:"洗濯機",e:"🫧",c:500,t:"f",a:4,h:4,tx:""},
- {id:"microwave",n:"電子レンジ",e:"⚡",c:600,t:"f",a:5,h:4,tx:""},
- {id:"dryer",n:"ドライヤー",e:"💨",c:700,t:"f",a:4,h:3,kw:"疾走",tx:"疾走：設置ターンからリーダーも攻撃可"},
- {id:"aircon",n:"エアコン",e:"❄️",c:800,t:"f",a:5,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める"},
- {id:"cubicle",n:"キュービクル",e:"🏭",c:900,t:"f",a:7,h:7,kw:"守護",tx:"守護：高圧受電設備の壁"},
- {id:"transformer",n:"特高変圧器",e:"🗼",c:1000,t:"f",a:9,h:9,tx:"フィニッシャー"},
- {id:"ground",n:"アース接地",e:"🌱",c:200,t:"s",fx:"heal3",tx:"自分のリーダーを3回復"},
- {id:"short",n:"ショート",e:"🔥",c:300,t:"s",fx:"dmg3",tg:1,tx:"敵の家電1台に3ダメージ"},
- {id:"wiring",n:"配線工事",e:"🔧",c:300,t:"s",fx:"draw2",tx:"カードを2枚引く"},
- {id:"solar",n:"ソーラーパネル",e:"☀️",c:400,t:"s",fx:"ramp",tx:"最大電力を+200W"},
- {id:"breaker",n:"漏電遮断器",e:"🔌",c:600,t:"s",fx:"kill",tg:1,tx:"敵の家電1台を遮断（破壊）"},
- {id:"surge",n:"雷サージ",e:"🌩️",c:800,t:"s",fx:"aoe3",tx:"敵の家電全体に3ダメージ"},
- {id:"fuse",n:"ヒューズ",e:"🔩",c:200,t:"f",a:1,h:2,kw:"ラストワード",lw:"draw1",tx:"ラストワード：カードを1枚引く"},
- {id:"capacitor",n:"コンデンサ",e:"⚡",c:400,t:"f",a:2,h:3,kw:"ラストワード",lw:"dmg2rand",tx:"ラストワード：ランダムな敵フォロワー1体に2ダメージ"},
- {id:"generator",n:"予備発電機",e:"⛽",c:500,t:"f",a:3,h:3,kw:"ラストワード",lw:"heal2",tx:"ラストワード：自リーダーを2回復"},
- {id:"megger",n:"メガー(絶縁抵抗計)",e:"📟",c:500,t:"f",a:2,h:2,kw:"必殺",tx:"必殺：この家電の攻撃でダメージを受けた敵は破壊される"},
- {id:"charge_station",n:"充電ステーション",e:"🔌",c:600,t:"f",a:4,h:4,kw:"ドレイン",tx:"ドレイン：攻撃で与えたダメージ分、自リーダーを回復"},
- {id:"kickboard",n:"電動キックボード",e:"🛴",c:400,t:"f",a:2,h:2,kw:"疾走",tx:"疾走：設置ターンからリーダーも攻撃可"},
- {id:"panelboard",n:"分電盤",e:"🗄️",c:600,t:"f",a:3,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める"},
- {id:"lightning_rod",n:"避雷針",e:"📡",c:200,t:"f",a:1,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める"},
- {id:"voltage_transformer",n:"変圧器",e:"🔃",c:700,t:"f",a:3,h:3,fx:"buffall1atk",tx:"ファンファーレ：味方フォロワー全体を+1/+0"},
- {id:"solar_plant",n:"太陽光発電所",e:"🌞",c:900,t:"f",a:6,h:6,fx:"wrefill300",tx:"設置時：このターンの電力+300W"},
- {id:"electrician1",n:"第一種電気工事士",e:"👷",c:1000,t:"f",a:7,h:7,fx:"aoe2",tx:"ファンファーレ：敵フォロワー全体に2ダメージ"},
- {id:"octopus_wiring",n:"タコ足配線",e:"🐙",c:300,t:"s",fx:"tacoashi",tx:"コンセント(1/1・効果なし)を2体設置（盤面上限4は超えない）"},
+ {id:"led",n:"LED電球",e:"💡",c:100,t:"f",a:1,h:1,fx:"draw1",tx:"設置時：1枚ドロー",type:"設備"},
+ {id:"charger",n:"スマホ充電器",e:"🔋",c:100,t:"f",a:1,h:2,tx:"",type:"工具"},
+ {id:"fan",n:"扇風機",e:"🌀",c:200,t:"f",a:2,h:1,tx:"",type:"設備"},
+ {id:"tester",n:"検電器",e:"🖊️",c:200,t:"f",a:1,h:1,kw:"突進",tx:"突進：設置ターンに家電を攻撃可",type:"工具"},
+ {id:"fridge",n:"冷蔵庫",e:"🧊",c:300,t:"f",a:2,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める",type:"設備"},
+ {id:"drill",n:"電気ドリル",e:"🛠️",c:300,t:"f",a:3,h:2,tx:"",type:"工具"},
+ {id:"washer",n:"洗濯機",e:"🫧",c:500,t:"f",a:4,h:4,tx:"",type:"水力"},
+ {id:"microwave",n:"電子レンジ",e:"⚡",c:600,t:"f",a:5,h:4,tx:"",type:"火力"},
+ {id:"dryer",n:"ドライヤー",e:"💨",c:700,t:"f",a:4,h:3,kw:"疾走",tx:"疾走：設置ターンからリーダーも攻撃可",type:"火力"},
+ {id:"aircon",n:"エアコン",e:"❄️",c:800,t:"f",a:5,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める",type:"設備"},
+ {id:"cubicle",n:"キュービクル",e:"🏭",c:900,t:"f",a:7,h:7,kw:"守護",tx:"守護：高圧受電設備の壁",type:"設備"},
+ {id:"transformer",n:"特高変圧器",e:"🗼",c:1000,t:"f",a:9,h:9,tx:"フィニッシャー",type:"設備"},
+ {id:"ground",n:"アース接地",e:"🌱",c:200,t:"s",fx:"heal3",tx:"自分のリーダーを3回復",type:"再エネ"},
+ {id:"short",n:"ショート",e:"🔥",c:300,t:"s",fx:"dmg3",tg:1,tx:"敵の家電1台に3ダメージ",type:"火力"},
+ {id:"wiring",n:"配線工事",e:"🔧",c:300,t:"s",fx:"draw2",tx:"カードを2枚引く",type:"工具"},
+ {id:"solar",n:"ソーラーパネル",e:"☀️",c:400,t:"s",fx:"ramp",tx:"最大電力を+200W",type:"再エネ"},
+ {id:"breaker",n:"漏電遮断器",e:"🔌",c:600,t:"s",fx:"kill",tg:1,tx:"敵の家電1台を遮断（破壊）",type:"設備"},
+ {id:"surge",n:"雷サージ",e:"🌩️",c:800,t:"s",fx:"aoe3",tx:"敵の家電全体に3ダメージ",type:"火力"},
+ {id:"fuse",n:"ヒューズ",e:"🔩",c:200,t:"f",a:1,h:2,kw:"ラストワード",lw:"draw1",tx:"ラストワード：カードを1枚引く",type:"工具"},
+ {id:"capacitor",n:"コンデンサ",e:"⚡",c:400,t:"f",a:2,h:3,kw:"ラストワード",lw:"dmg2rand",tx:"ラストワード：ランダムな敵フォロワー1体に2ダメージ",type:"工具"},
+ {id:"generator",n:"予備発電機",e:"⛽",c:500,t:"f",a:3,h:3,kw:"ラストワード",lw:"heal2",tx:"ラストワード：自リーダーを2回復",type:"火力"},
+ {id:"megger",n:"メガー(絶縁抵抗計)",e:"📟",c:500,t:"f",a:2,h:2,kw:"必殺",tx:"必殺：この家電の攻撃でダメージを受けた敵は破壊される",type:"工具"},
+ {id:"charge_station",n:"充電ステーション",e:"🔌",c:600,t:"f",a:4,h:4,kw:"ドレイン",tx:"ドレイン：攻撃で与えたダメージ分、自リーダーを回復",type:"設備"},
+ {id:"kickboard",n:"電動キックボード",e:"🛴",c:400,t:"f",a:2,h:2,kw:"疾走",tx:"疾走：設置ターンからリーダーも攻撃可",type:"工具"},
+ {id:"panelboard",n:"分電盤",e:"🗄️",c:600,t:"f",a:3,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める",type:"設備"},
+ {id:"lightning_rod",n:"避雷針",e:"📡",c:200,t:"f",a:1,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める",type:"設備"},
+ {id:"voltage_transformer",n:"変圧器",e:"🔃",c:700,t:"f",a:3,h:3,fx:"buffall1atk",tx:"ファンファーレ：味方フォロワー全体を+1/+0",type:"設備"},
+ {id:"solar_plant",n:"太陽光発電所",e:"🌞",c:900,t:"f",a:6,h:6,fx:"wrefill300",tx:"設置時：このターンの電力+300W",type:"再エネ"},
+ {id:"electrician1",n:"第一種電気工事士",e:"👷",c:1000,t:"f",a:7,h:7,fx:"aoe2",tx:"ファンファーレ：敵フォロワー全体に2ダメージ",type:"作業員"},
+ {id:"octopus_wiring",n:"タコ足配線",e:"🐙",c:300,t:"s",fx:"tacoashi",tx:"コンセント(1/1・効果なし)を2体設置（盤面上限4は超えない）",type:"工具"},
 ];
 const POOL_BY_ID = new Map(POOL.map(c => [c.id, c]));
 const TOKEN_OUTLET = { n:"コンセント", e:"🔌", c:0, t:"f", a:1, h:1, tx:"" };
@@ -396,7 +396,7 @@ function buildSnap(room, forSeat) {
   const oppSeatKey = other(forSeat);
   const side = (s, seatTag) => ({
     hp:s.hp, maxW:s.maxW, w:s.w, ep:s.ep, tn:s.tn, deckN:s.deck.length,
-    board: s.board.map(u => ({ id:u.id, seat:seatTag, n:u.n, e:u.e, a:u.a, hp:u.hp, maxhp:u.maxhp, kw:u.kw, evolved:u.evolved, canAtk:u.canAtk, rushOnly:u.rushOnly, c:u.c, tx:u.tx })),
+    board: s.board.map(u => ({ id:u.id, seat:seatTag, n:u.n, e:u.e, a:u.a, hp:u.hp, maxhp:u.maxhp, kw:u.kw, evolved:u.evolved, canAtk:u.canAtk, rushOnly:u.rushOnly, c:u.c, tx:u.tx, type:u.type })),
   });
   const oppObj = room.seats[oppSeatKey];
   return {
