@@ -70,7 +70,7 @@ const POOL = [
  {id:"panelboard",n:"分電盤",e:"🗄️",c:600,t:"f",a:3,h:6,kw:"守護",tx:"守護：先に攻撃を受け止める"},
  {id:"lightning_rod",n:"避雷針",e:"📡",c:200,t:"f",a:1,h:3,kw:"守護",tx:"守護：先に攻撃を受け止める"},
  {id:"voltage_transformer",n:"変圧器",e:"🔃",c:700,t:"f",a:3,h:3,fx:"buffall1atk",tx:"ファンファーレ：味方フォロワー全体を+1/+0"},
- {id:"solar_plant",n:"太陽光発電所",e:"🌞",c:900,t:"f",a:6,h:6,fx:"ramp",tx:"ファンファーレ：最大電力を+200W"},
+ {id:"solar_plant",n:"太陽光発電所",e:"🌞",c:900,t:"f",a:6,h:6,fx:"wrefill300",tx:"設置時：このターンの電力+300W"},
  {id:"electrician1",n:"第一種電気工事士",e:"👷",c:1000,t:"f",a:7,h:7,fx:"aoe2",tx:"ファンファーレ：敵フォロワー全体に2ダメージ"},
  {id:"octopus_wiring",n:"タコ足配線",e:"🐙",c:300,t:"s",fx:"tacoashi",tx:"コンセント(1/1・効果なし)を2体設置（盤面上限4は超えない）"},
 ];
@@ -179,6 +179,7 @@ function fanfare(G, s, e, card) {
   if (card.fx === "draw2") drawN(G, s===G.S.A?"A":"B", 2);
   if (card.fx === "heal3") s.hp = Math.min(20, s.hp + 3);
   if (card.fx === "ramp") s.maxW = Math.min(MAXW, s.maxW + 200);
+  if (card.fx === "wrefill300") s.w = Math.min(s.maxW, s.w + 300);
   if (card.fx === "aoe3") e.board.forEach(u => u.hp -= 3);
   if (card.fx === "aoe2") e.board.forEach(u => u.hp -= 2);
   if (card.fx === "buffall1atk") s.board.forEach(u => u.a += 1);
