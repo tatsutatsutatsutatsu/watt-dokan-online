@@ -75,7 +75,9 @@ const POOL = [
  {id:"octopus_wiring",n:"タコ足配線",e:"🐙",c:300,t:"s",fx:"tacoashi",tx:"コンセント(1/1・効果なし)を2体設置（盤面上限4は超えない）",type:"工具"},
 ];
 const POOL_BY_ID = new Map(POOL.map(c => [c.id, c]));
-const TOKEN_OUTLET = { n:"コンセント", e:"🔌", c:0, t:"f", a:1, h:1, tx:"" };
+/* id はアイコン画像 /icons/outlet.png を特定するための安定キー（summonでcidに転写される）。
+   POOL外のトークンなのでデッキ構築・カード一覧には出さない。 */
+const TOKEN_OUTLET = { id:"outlet", n:"コンセント", e:"🔌", c:0, t:"f", a:1, h:1, tx:"" };
 const MAXW = 1000, BOARD_MAX = 4, HAND_MAX = 8;
 const EVO = { A:{turn:5,ep:2}, B:{turn:4,ep:3} }; // 先攻:5T/EP2 後攻:4T/EP3
 
