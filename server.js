@@ -17,6 +17,94 @@ const TURN_MS = 90000;              // ターンタイマー：90秒
 const MULLIGAN_MS = 25000;          // マリガン制限時間
 const RECONNECT_GRACE_MS = 120000;  // 再接続猶予：2分
 
+/* ==================== 戦績・ランキング（stats.json永続化） ====================
+ * 注意：Renderの無料プランはデプロイ／再起動のたびにファイルシステムが
+ * リセットされるため、stats.json はそのタイミングで消える（永続化されない）。
+ * 本格的に残したい場合は有料プランのPersistent Diskか外部DBが必要。
+ */
+const STATS_FILE = path.join(__dirname, "stats.json");
+const RANK_TITLES = ["⚡電力王", "🔋主任技術者", "🔌電工マイスター"]; // TOP3称号（両タブ共通の呼称）
+let stats = { players: {}, seasons: {} };
+function loadStats() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(STATS_FILE, "utf8"));
+    if (parsed && typeof parsed === "object") {
+      stats.players = parsed.players || {};
+      stats.seasons = parsed.seasons || {};
+    }
+  } catch (e) { /* 未作成 or 壊れている場合は初期状態のまま起動を続ける */ }
+}
+let saveStatsTimer = null;
+function saveStatsDebounced() {
+  if (saveStatsTimer) return;
+  saveStatsTimer = setTimeout(() => {
+    saveStatsTimer = null;
+    try { fs.writeFileSync(STATS_FILE, JSON.stringify(stats)); }
+    catch (e) { console.error("⚠ stats.json 書き込み失敗:", e.message); } // 書き込み失敗してもサーバーは継続
+  }, 500);
+}
+loadStats();
+
+function currentSeasonKey() {
+  const d = new Date(Date.now() + 9 * 3600 * 1000); // JST = UTC+9
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function prevSeasonKey(key) {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function getSeason(key) {
+  return stats.seasons[key] || (stats.seasons[key] = { pvp: {}, cpu: { easy: {}, normal: {}, hard: {} } });
+}
+function bumpStat(seasonKey, kind, difficulty, pid, win) {
+  const season = getSeason(seasonKey);
+  const bucket = kind === "pvp" ? season.pvp : season.cpu[difficulty];
+  const rec = bucket[pid] || (bucket[pid] = { win: 0, loss: 0, games: 0 });
+  rec.games++;
+  if (win) rec.win++; else rec.loss++;
+}
+function computeTop(seasonKey, kind, difficulty, limit) {
+  const season = stats.seasons[seasonKey];
+  if (!season) return [];
+  const bucket = kind === "pvp" ? season.pvp : (season.cpu && season.cpu[difficulty]) || {};
+  const arr = Object.entries(bucket).map(([pid, rec]) => ({
+    pid, name: (stats.players[pid] || {}).name || "???",
+    win: rec.win, loss: rec.loss, games: rec.games,
+    winRate: rec.games ? rec.win / rec.games : 0,
+  }));
+  arr.sort((a, b) => b.win - a.win || b.winRate - a.winRate || b.games - a.games);
+  return arr.slice(0, limit);
+}
+function pvpTitleForPlayer(pid) {
+  if (!pid) return null;
+  const top3 = computeTop(currentSeasonKey(), "pvp", null, 3);
+  const idx = top3.findIndex(x => x.pid === pid);
+  return idx >= 0 ? RANK_TITLES[idx] : null;
+}
+function validPid(pid) {
+  return (typeof pid === "string" && stats.players[pid]) ? pid : null;
+}
+/* 決着時に一度だけ戦績を記録する（HP0／リタイア／切断タイムアウトの3経路から共通で呼ばれる）。
+   「マリガン完了前の退出は記録しない」は切断タイムアウト側の呼び出し元で判定済み。 */
+function recordMatchResult(room, winnerSeat) {
+  const G = room.G;
+  if (!G || G.statsRecorded) return;
+  G.statsRecorded = true;
+  const seasonKey = currentSeasonKey();
+  if (room.cpu) {
+    const seat = room.seats.A;
+    if (seat && seat.playerId) bumpStat(seasonKey, "cpu", room.difficulty, seat.playerId, winnerSeat === "A");
+  } else {
+    ["A", "B"].forEach(seatX => {
+      const seat = room.seats[seatX];
+      if (seat && seat.playerId) bumpStat(seasonKey, "pvp", null, seat.playerId, winnerSeat === seatX);
+    });
+  }
+  saveStatsDebounced();
+}
+
 /* ==================== 静的ファイル配信 (public/) ==================== */
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".wav": "audio/wav" };
 const server = http.createServer((req, res) => {
@@ -281,6 +369,8 @@ function newGame(room, nameA, nameB) {
     phase: "mulligan", result: null,
     names: { A: nameA, B: nameB },
     nextId: 0, eventSeq: 0, lastEvent: null, deadline: null,
+    statsRecorded: false,
+    titles: room.cpu ? { A: null, B: null } : { A: pvpTitleForPlayer(room.seats.A.playerId), B: pvpTitleForPlayer(room.seats.B.playerId) },
   };
   room.G = G;
   room.rematch = { A:false, B:false };
@@ -325,6 +415,7 @@ function applyRetire(room, seatX) {
   G.phase = "over"; G.deadline = null;
   clearTurnTimer(room); clearMulliganTimer(room);
   armOverTimer(room);
+  recordMatchResult(room, G.result);
   setMsg(G, `${G.names[seatX]}がリタイアした`);
   pushEvent(G, { type:"retire", seat:seatX, diffs:[], deaths:[] });
   broadcast(room);
@@ -404,6 +495,7 @@ function applyAction(room, seatX, act) {
     G.phase = "over"; G.deadline = null;
     clearTurnTimer(room);
     armOverTimer(room);
+    recordMatchResult(room, G.result);
     setMsg(G, `${G.names[G.result]}の勝利！`);
   }
   const { diffs, deaths } = diffHP(before, G);
@@ -433,6 +525,7 @@ function buildSnap(room, forSeat) {
     me: { ...side(me, forSeat), hand: me.hand, canEvolve: G.phase==="battle" && me.tn >= EVO[forSeat].turn && me.ep > 0, mulliganDone: !!me.mulliganDone },
     opp: { ...side(op, oppSeatKey), handN: op.hand.length, mulliganDone: !!op.mulliganDone },
     oppName: G.names[oppSeatKey], myName: G.names[forSeat],
+    myTitle: (G.titles && G.titles[forSeat]) || null, oppTitle: (G.titles && G.titles[oppSeatKey]) || null,
     yourTurn: G.phase === "battle" && G.active === forSeat && !G.result,
     msg: G.msg, log: G.logList,
     event: G.lastEvent,
@@ -717,7 +810,7 @@ wss.on("connection", (ws) => {
       const code = genCode();
       const room = makeRoom(code, false);
       const token = genToken();
-      room.seats.A = { ws, name: cleanName(m.name) || "先攻⚡", token, connected:true, deck: resolveDeck(m.deck) };
+      room.seats.A = { ws, name: cleanName(m.name) || "先攻⚡", token, connected:true, deck: resolveDeck(m.deck), playerId: validPid(m.playerId) };
       rooms.set(code, room);
       ws.roomCode = code; ws.seat = "A";
       send(ws, { type:"created", code, token });
@@ -728,7 +821,7 @@ wss.on("connection", (ws) => {
       if (!room) { send(ws, { type:"error", msg:"ルームが見つかりません" }); return; }
       if (room.seats.B) { send(ws, { type:"error", msg:"このルームは満室です" }); return; }
       const token = genToken();
-      room.seats.B = { ws, name: cleanName(m.name) || "後攻🔧", token, connected:true, deck: resolveDeck(m.deck) };
+      room.seats.B = { ws, name: cleanName(m.name) || "後攻🔧", token, connected:true, deck: resolveDeck(m.deck), playerId: validPid(m.playerId) };
       ws.roomCode = room.code; ws.seat = "B";
       send(ws, { type:"joined", code: room.code, token });
       send(room.seats.A.ws, { type:"guestJoined", name: room.seats.B.name });
@@ -741,7 +834,7 @@ wss.on("connection", (ws) => {
       room.difficulty = normDifficulty(m.difficulty);
       const diffInfo = DIFFICULTY_INFO[room.difficulty];
       const token = genToken();
-      room.seats.A = { ws, name: cleanName(m.name) || "でんこう⚡", token, connected:true, deck: resolveDeck(m.deck) };
+      room.seats.A = { ws, name: cleanName(m.name) || "でんこう⚡", token, connected:true, deck: resolveDeck(m.deck), playerId: validPid(m.playerId) };
       room.seats.B = { ws:null, name:`CPU${diffInfo.emoji}${diffInfo.label}`, token:null, connected:true, isCpu:true, deck: randomValidDeck() };
       rooms.set(code, room);
       ws.roomCode = code; ws.seat = "A";
@@ -780,6 +873,49 @@ wss.on("connection", (ws) => {
       const room = rooms.get(ws.roomCode); if (!room) return;
       if (ws.seat) requestRematch(room, ws.seat);
     }
+
+    else if (m.type === "register") {
+      const name = cleanName(m.name);
+      let pid = typeof m.playerId === "string" ? m.playerId : null;
+      if (pid && stats.players[pid]) {
+        stats.players[pid].name = name || stats.players[pid].name;
+      } else {
+        pid = genToken();
+        stats.players[pid] = { name: name || "プレイヤー", createdAt: Date.now() };
+      }
+      saveStatsDebounced();
+      send(ws, { type:"registered", playerId: pid, name: stats.players[pid].name });
+    }
+
+    else if (m.type === "getRanking") {
+      const tab = m.tab === "cpu" ? "cpu" : "pvp";
+      const seasonKey = currentSeasonKey();
+      const top = computeTop(seasonKey, tab, "hard", 10);
+      const prevTop3 = computeTop(prevSeasonKey(seasonKey), tab, "hard", 3);
+      const pid = typeof m.playerId === "string" ? m.playerId : null;
+      let me = null;
+      if (pid && stats.players[pid]) {
+        const full = computeTop(seasonKey, tab, "hard", Infinity);
+        const idx = full.findIndex(x => x.pid === pid);
+        if (idx >= 0) me = { ...full[idx], rank: idx + 1 };
+      }
+      send(ws, { type:"ranking", tab, seasonKey, top, prevTop3, me });
+    }
+
+    else if (m.type === "getMyStats") {
+      const pid = typeof m.playerId === "string" ? m.playerId : null;
+      if (!pid || !stats.players[pid]) { send(ws, { type:"myStats", registered:false }); return; }
+      const totals = { pvp: { win:0, loss:0, games:0 }, cpu: { easy:{win:0,loss:0,games:0}, normal:{win:0,loss:0,games:0}, hard:{win:0,loss:0,games:0} } };
+      Object.values(stats.seasons).forEach(season => {
+        const r = season.pvp && season.pvp[pid];
+        if (r) { totals.pvp.win += r.win; totals.pvp.loss += r.loss; totals.pvp.games += r.games; }
+        ["easy","normal","hard"].forEach(d => {
+          const rc = season.cpu && season.cpu[d] && season.cpu[d][pid];
+          if (rc) { totals.cpu[d].win += rc.win; totals.cpu[d].loss += rc.loss; totals.cpu[d].games += rc.games; }
+        });
+      });
+      send(ws, { type:"myStats", registered:true, name: stats.players[pid].name, pvp: totals.pvp, cpu: totals.cpu });
+    }
   });
 
   ws.on("close", () => {
@@ -795,6 +931,10 @@ wss.on("connection", (ws) => {
       const s = r.seats[seatX]; if (!s || s.connected) return;
       const opp = r.seats[other(seatX)];
       if (opp && opp.ws) send(opp.ws, { type:"opponentLeft" });
+      if (r.G && r.G.phase === "battle" && !r.G.result) {
+        r.G.result = other(seatX); // 切断猶予切れ：残った側の不戦勝として記録
+        recordMatchResult(r, r.G.result);
+      }
       clearTurnTimer(r); clearMulliganTimer(r); clearOverTimer(r);
       rooms.delete(r.code);
     }, RECONNECT_GRACE_MS);
