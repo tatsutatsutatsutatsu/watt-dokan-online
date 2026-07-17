@@ -242,6 +242,17 @@
     <div class="err" id="lobbyErr"></div>
   </div>
 
+  <div class="box hidden" id="difficultyBox">
+    <div class="deckhead">
+      <button class="ghost" id="btnDiffBack">← 戻る</button>
+      <div>CPU難易度を選択</div>
+      <div style="width:56px"></div>
+    </div>
+    <button class="ghost" id="btnDiffEasy">🐣 よわい</button>
+    <button class="ghost" id="btnDiffNormal">🤖 ふつう</button>
+    <button class="ghost" id="btnDiffHard">👹 つよい</button>
+  </div>
+
   <div class="box hidden" id="waitBox">
     <div>ルームコード</div>
     <div class="codeview" id="codeView">----</div>
@@ -849,9 +860,20 @@ $("btnJoin").onclick=()=>{
 };
 $("btnSolo").onclick=()=>{
   Snd.unlock();
-  myName=($("nameInput").value.trim()||"でんこう⚡");
-  connectAndSend({type:"solo",name:myName,deck:getActiveDeckIds()});
+  $("menuBox").classList.add("hidden");
+  $("difficultyBox").classList.remove("hidden");
 };
+$("btnDiffBack").onclick=()=>{
+  $("difficultyBox").classList.add("hidden");
+  $("menuBox").classList.remove("hidden");
+};
+function startSolo(difficulty){
+  myName=($("nameInput").value.trim()||"でんこう⚡");
+  connectAndSend({type:"solo",name:myName,deck:getActiveDeckIds(),difficulty});
+}
+$("btnDiffEasy").onclick=()=>startSolo("easy");
+$("btnDiffNormal").onclick=()=>startSolo("normal");
+$("btnDiffHard").onclick=()=>startSolo("hard");
 
 /* ============ サーバーからのスナップショット適用 ＋ 演出キュー ============ */
 function onState(newSnap){
