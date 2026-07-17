@@ -170,7 +170,9 @@ function drawN(G, seatX, n) {
   }
 }
 function summon(G, s, card) {
-  const u = { ...card, id: ++G.nextId, maxhp: card.h, hp: card.h, canAtk: card.kw==="疾走"||card.kw==="突進", rushOnly: card.kw==="突進", evolved:false };
+  // cid はカードの安定した文字列ID（アイコン画像 /icons/<cid>.png の特定に使用）。
+  // id は盤面ユニットの一意な数値インスタンスIDで、...card 展開後に上書きされ card.id とは別物になる。
+  const u = { ...card, cid: card.id, id: ++G.nextId, maxhp: card.h, hp: card.h, canAtk: card.kw==="疾走"||card.kw==="突進", rushOnly: card.kw==="突進", evolved:false };
   s.board.push(u);
   return u;
 }
@@ -408,7 +410,7 @@ function buildSnap(room, forSeat) {
   const oppSeatKey = other(forSeat);
   const side = (s, seatTag) => ({
     hp:s.hp, maxW:s.maxW, w:s.w, ep:s.ep, tn:s.tn, deckN:s.deck.length,
-    board: s.board.map(u => ({ id:u.id, seat:seatTag, n:u.n, e:u.e, a:u.a, hp:u.hp, maxhp:u.maxhp, kw:u.kw, evolved:u.evolved, canAtk:u.canAtk, rushOnly:u.rushOnly, c:u.c, tx:u.tx, type:u.type })),
+    board: s.board.map(u => ({ id:u.id, cid:u.cid, seat:seatTag, n:u.n, e:u.e, a:u.a, hp:u.hp, maxhp:u.maxhp, kw:u.kw, evolved:u.evolved, canAtk:u.canAtk, rushOnly:u.rushOnly, c:u.c, tx:u.tx, type:u.type })),
   });
   const oppObj = room.seats[oppSeatKey];
   return {
