@@ -192,6 +192,18 @@
   .overlay p{font-size:.85rem;opacity:.8;line-height:1.8}
   .overlay .btnrow{display:flex;gap:10px}
 
+  /* ---- ランキング／登録モーダル ---- */
+  .overlay.rankingoverlay{z-index:68}
+  .overlay.registeroverlay{z-index:69}
+  .overlay input{font-family:inherit;font-size:1rem;text-align:center;padding:9px;border-radius:8px;border:2px solid var(--line);background:#0e1013;color:var(--label);width:220px;letter-spacing:.1em}
+  .overlay input:focus{outline:none;border-color:var(--safety)}
+  .rankbox{width:100%;max-width:340px;text-align:left;font-size:.78rem;line-height:1.9;background:var(--panel);border:2px solid var(--line);border-radius:8px;padding:10px 14px;max-height:50vh;overflow-y:auto}
+  .rankrow{display:flex;justify-content:space-between;gap:8px}
+  .rankrow.me{color:var(--safety);font-weight:bold}
+  .ranktabs{display:flex;gap:8px}
+  .ranktabs button.active-tab{background:var(--safety);color:#14161a}
+  .rankprev{font-size:.65rem;opacity:.75;line-height:1.6}
+
   /* ---- カード詳細（長押し／右クリック） ---- */
   .carddetail{position:fixed;inset:0;background:rgba(10,12,15,.75);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
   .carddetail.show{display:flex}
@@ -238,6 +250,7 @@
     </div>
     <button class="ghost" id="btnSolo">🤖 ひとりで遊ぶ（CPU対戦）</button>
     <button class="ghost" id="btnDeckEdit">🛠 デッキ編集</button>
+    <button class="ghost" id="btnRanking">🏆 ランキング</button>
     <div class="note" id="activeDeckInfo"></div>
     <div class="err" id="lobbyErr"></div>
   </div>
@@ -368,6 +381,30 @@
   <div class="btnrow">
     <button id="btnRetireConfirm">🏳️ リタイアする</button>
     <button class="ghost" id="btnRetireCancel">やめる</button>
+  </div>
+</div>
+
+<div class="overlay registeroverlay" id="registerOverlay">
+  <h2 style="font-size:1.5rem">🏆 ランキング登録</h2>
+  <p>ランキングに載る名前を登録します（対戦名とは別・8文字まで）。<br>登録しなくても遊べますが、戦績は記録されません。</p>
+  <input id="registerNameInput" maxlength="8" placeholder="登録名">
+  <div class="btnrow">
+    <button id="btnRegisterConfirm">登録する</button>
+    <button class="ghost" id="btnRegisterSkip">あとで</button>
+  </div>
+</div>
+
+<div class="overlay rankingoverlay" id="rankingOverlay">
+  <h2 style="font-size:1.5rem">🏆 ランキング</h2>
+  <div class="ranktabs">
+    <button class="ghost" id="rankTabPvp">対人戦</button>
+    <button class="ghost" id="rankTabCpu">CPU戦(つよい)</button>
+  </div>
+  <div class="rankbox" id="rankingBody">読み込み中…</div>
+  <div class="rankprev" id="rankingPrevSeason"></div>
+  <div class="btnrow">
+    <button class="ghost" id="btnRankRename">✏️ 登録名変更</button>
+    <button class="ghost" id="btnRankClose">閉じる</button>
   </div>
 </div>
 
@@ -744,6 +781,97 @@ const saveSession=o=>{try{localStorage.setItem(SESSION_KEY,JSON.stringify(o));}c
 const loadSession=()=>{try{return JSON.parse(localStorage.getItem(SESSION_KEY));}catch{return null}};
 const clearSession=()=>{try{localStorage.removeItem(SESSION_KEY);}catch{}};
 
+/* ============ 戦績・ランキング ============ */
+const PLAYER_ID_KEY="wattdokan_player_id";
+function loadPlayerId(){ try{return localStorage.getItem(PLAYER_ID_KEY);}catch{return null} }
+function savePlayerId(id){ try{localStorage.setItem(PLAYER_ID_KEY,id);}catch{} }
+let playerId=loadPlayerId();
+let myRankName=null;
+
+/* ランキング系メッセージはゲーム進行とは無関係なので、専用の使い捨てWebSocket接続で
+   リクエスト～レスポンスを完結させる（roomCode/seatを持つメインの接続に相乗りしない）。 */
+function lobbyWsRequest(payload,expectTypes){
+  return new Promise((resolve,reject)=>{
+    if(!location.host||location.protocol==="file:"){reject(new Error("file"));return}
+    const sock=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host);
+    let done=false;
+    const timer=setTimeout(()=>{if(!done){done=true;try{sock.close()}catch{}reject(new Error("timeout"))}},8000);
+    sock.onopen=()=>sock.send(JSON.stringify(payload));
+    sock.onmessage=e=>{
+      let m;try{m=JSON.parse(e.data)}catch{return}
+      const types=Array.isArray(expectTypes)?expectTypes:[expectTypes];
+      if(!done&&types.includes(m.type)){done=true;clearTimeout(timer);try{sock.close()}catch{}resolve(m)}
+    };
+    sock.onerror=()=>{if(!done){done=true;clearTimeout(timer);reject(new Error("ws"))}};
+  });
+}
+
+let registerPendingThen=null;
+function openRegisterModal(thenFn){
+  $("registerNameInput").value = myRankName || "";
+  registerPendingThen = thenFn || null;
+  $("registerOverlay").classList.add("show");
+}
+$("btnRegisterSkip").onclick=()=>{
+  $("registerOverlay").classList.remove("show");
+  const fn=registerPendingThen; registerPendingThen=null;
+  if(fn)fn();
+};
+$("btnRegisterConfirm").onclick=async ()=>{
+  const name=$("registerNameInput").value.trim();
+  if(!name)return;
+  try{
+    const res=await lobbyWsRequest({type:"register",name,playerId},"registered");
+    playerId=res.playerId; savePlayerId(playerId); myRankName=res.name;
+    $("registerOverlay").classList.remove("show");
+    const fn=registerPendingThen; registerPendingThen=null;
+    if(fn)fn();
+    else if($("rankingOverlay").classList.contains("show"))loadRanking(currentRankTab);
+  }catch(e){ /* 失敗時はモーダルを開いたまま再試行させる */ }
+};
+
+let currentRankTab="pvp";
+function medalFor(idx){ return idx===0?"⚡電力王":idx===1?"🔋主任技術者":idx===2?"🔌電工マイスター":""; }
+function renderRanking(res){
+  const rows=res.top.map((p,i)=>{
+    const medal=medalFor(i);
+    const mine=playerId&&p.pid===playerId;
+    return `<div class="rankrow${mine?" me":""}"><span>${i+1}. ${medal?medal+" ":""}${p.name}</span><span>${p.win}勝${p.loss}敗（${p.games}戦）</span></div>`;
+  }).join("") || "<div style='opacity:.6'>まだ記録がありません</div>";
+  let meRow="";
+  if(res.me && !res.top.some(p=>p.pid===res.me.pid)){
+    meRow=`<div class="rankrow me" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)"><span>あなた：${res.me.rank}位</span><span>${res.me.win}勝${res.me.loss}敗（${res.me.games}戦）</span></div>`;
+  }
+  $("rankingBody").innerHTML=rows+meRow;
+  $("rankingPrevSeason").textContent = res.prevTop3.length
+    ? "先月の王者："+res.prevTop3.map((p,i)=>`${medalFor(i)} ${p.name}`).join("　")
+    : "先月の記録なし";
+}
+async function loadRanking(tab){
+  currentRankTab=tab;
+  $("rankTabPvp").classList.toggle("active-tab",tab==="pvp");
+  $("rankTabCpu").classList.toggle("active-tab",tab==="cpu");
+  $("rankingBody").textContent="読み込み中…";
+  $("rankingPrevSeason").textContent="";
+  try{
+    const res=await lobbyWsRequest({type:"getRanking",tab,playerId},"ranking");
+    if(res.me&&res.me.name)myRankName=res.me.name;
+    renderRanking(res);
+  }catch(e){ $("rankingBody").textContent="ランキングを取得できませんでした。"; }
+}
+function openRankingPanel(){
+  $("rankingOverlay").classList.add("show");
+  loadRanking("pvp");
+}
+$("btnRanking").onclick=()=>{
+  if(!playerId)openRegisterModal(()=>openRankingPanel());
+  else openRankingPanel();
+};
+$("rankTabPvp").onclick=()=>loadRanking("pvp");
+$("rankTabCpu").onclick=()=>loadRanking("cpu");
+$("btnRankRename").onclick=()=>openRegisterModal(null);
+$("btnRankClose").onclick=()=>{$("rankingOverlay").classList.remove("show")};
+
 /* ============ 通信 ============ */
 let ws, seat=null, myName="でんこう";
 let snap=null;                 // 直近に描画したスナップショット（サーバー権威）
@@ -849,14 +977,14 @@ function setOppBanner(text){
 $("btnCreate").onclick=()=>{
   Snd.unlock();
   myName=($("nameInput").value.trim()||"先攻⚡");
-  connectAndSend({type:"create",name:myName,deck:getActiveDeckIds()});
+  connectAndSend({type:"create",name:myName,deck:getActiveDeckIds(),playerId});
 };
 $("btnJoin").onclick=()=>{
   Snd.unlock();
   const code=$("codeInput").value.trim();
   if(!/^\d{4}$/.test(code)){$("lobbyErr").textContent="4桁の数字コードを入力してください";return}
   myName=($("nameInput").value.trim()||"後攻🔧");
-  connectAndSend({type:"join",code,name:myName,deck:getActiveDeckIds()});
+  connectAndSend({type:"join",code,name:myName,deck:getActiveDeckIds(),playerId});
 };
 $("btnSolo").onclick=()=>{
   Snd.unlock();
@@ -869,7 +997,7 @@ $("btnDiffBack").onclick=()=>{
 };
 function startSolo(difficulty){
   myName=($("nameInput").value.trim()||"でんこう⚡");
-  connectAndSend({type:"solo",name:myName,deck:getActiveDeckIds(),difficulty});
+  connectAndSend({type:"solo",name:myName,deck:getActiveDeckIds(),difficulty,playerId});
 }
 $("btnDiffEasy").onclick=()=>startSolo("easy");
 $("btnDiffNormal").onclick=()=>startSolo("normal");
@@ -1172,7 +1300,8 @@ function render(){
   if(!snap)return;
   if(!bgmStarted){bgmStarted=true;Snd.startBgm()}
   $("lobby").style.display="none";$("game").classList.add("on");
-  $("mName").textContent=snap.myName;$("oName").textContent=snap.oppName;
+  $("mName").textContent=snap.myTitle?`${snap.myTitle} ${snap.myName}`:snap.myName;
+  $("oName").textContent=snap.oppTitle?`${snap.oppTitle} ${snap.oppName}`:snap.oppName;
   $("mHp").textContent=snap.me.hp;$("oHp").textContent=snap.opp.hp;
   $("mHp").className="hp"+(snap.me.hp<=6?" low":"");$("oHp").className="hp"+(snap.opp.hp<=6?" low":"");
   $("mEp").textContent=snap.me.ep;$("oEp").textContent=snap.opp.ep;
@@ -1217,7 +1346,10 @@ setInterval(()=>{
 function updateResultOverlay(){
   if(!snap)return;
   if(snap.phase==="over"){
-    if(!ended){ended=true; snap.result==="win"?Snd.win():Snd.lose();}
+    if(!ended){
+      ended=true; snap.result==="win"?Snd.win():Snd.lose();
+      if(snap.result==="win"&&!playerId)openRegisterModal(null);
+    }
     $("resTitle").textContent=snap.result==="win"?"WIN！":"LOSE…";
     $("resTitle").className=snap.result==="win"?"":"lose";
     $("resText").innerHTML=snap.result==="win"
