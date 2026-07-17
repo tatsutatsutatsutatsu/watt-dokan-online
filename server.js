@@ -58,7 +58,7 @@ const POOL = [
  {id:"ground",n:"アース接地",e:"🌱",c:200,t:"s",fx:"heal3",tx:"自分のリーダーを3回復",type:"再エネ"},
  {id:"short",n:"ショート",e:"🔥",c:300,t:"s",fx:"dmg3",tg:1,tx:"敵の家電1台に3ダメージ",type:"火力"},
  {id:"wiring",n:"配線工事",e:"🔧",c:300,t:"s",fx:"draw2",tx:"カードを2枚引く",type:"工具"},
- {id:"solar",n:"ソーラーパネル",e:"☀️",c:400,t:"s",fx:"ramp",tx:"最大電力を+200W",type:"再エネ"},
+ {id:"solar",n:"ソーラーパネル",e:"☀️",c:300,t:"s",fx:"ramp",tx:"最大電力を+100W",type:"再エネ"},
  {id:"breaker",n:"漏電遮断器",e:"🔌",c:600,t:"s",fx:"kill",tg:1,tx:"敵の家電1台を遮断（破壊）",type:"設備"},
  {id:"surge",n:"雷サージ",e:"🌩️",c:800,t:"s",fx:"aoe3",tx:"敵の家電全体に3ダメージ",type:"火力"},
  {id:"fuse",n:"ヒューズ",e:"🔩",c:200,t:"f",a:1,h:2,kw:"ラストワード",lw:"draw1",tx:"ラストワード：カードを1枚引く",type:"工具"},
@@ -182,7 +182,7 @@ function fanfare(G, s, e, card) {
   if (card.fx === "draw1") drawN(G, s===G.S.A?"A":"B", 1);
   if (card.fx === "draw2") drawN(G, s===G.S.A?"A":"B", 2);
   if (card.fx === "heal3") s.hp = Math.min(20, s.hp + 3);
-  if (card.fx === "ramp") s.maxW = Math.min(MAXW, s.maxW + 200);
+  if (card.fx === "ramp") s.maxW = Math.min(MAXW, s.maxW + 100);
   if (card.fx === "wrefill300") s.w = Math.min(s.maxW, s.w + 300);
   if (card.fx === "aoe3") e.board.forEach(u => u.hp -= 3);
   if (card.fx === "aoe2") e.board.forEach(u => u.hp -= 2);
