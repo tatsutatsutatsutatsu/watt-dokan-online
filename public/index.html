@@ -435,6 +435,10 @@
   </div>
   <div class="rankbox" id="rankingBody">読み込み中…</div>
   <div class="rankprev" id="rankingPrevSeason"></div>
+  <div style="font-size:.65rem;opacity:.75;text-align:center;line-height:1.6">
+    <button class="ghost" id="btnCopyPlayerId" style="font-size:.65rem;padding:5px 8px">🔑 自分のIDをコピー</button>
+    <div>開発者用トークンです。他人に教えないでください。</div>
+  </div>
   <div class="btnrow">
     <button class="ghost" id="btnRankRename">✏️ 登録名変更</button>
     <button class="ghost" id="btnRankClose">閉じる</button>
@@ -998,20 +1002,30 @@ $("btnRegisterConfirm").onclick=async ()=>{
 };
 
 let currentRankTab="pvp";
+const DEV_TITLE_LABEL="ゲームマスター🎩"; // 付与判定はサーバー側のみ。ここではp.dev/res.me.devフラグを表示するだけ
 function medalFor(idx){ return idx===0?"⚡電力王":idx===1?"🔋主任技術者":idx===2?"🔌電工マイスター":""; }
+function titledName(devTitle,seasonTitle,name){
+  const parts=[];
+  if(devTitle)parts.push(devTitle);
+  if(seasonTitle)parts.push(seasonTitle);
+  parts.push(name);
+  return parts.join(" ");
+}
 function renderRanking(res){
   const rows=res.top.map((p,i)=>{
     const medal=medalFor(i);
     const mine=playerId&&p.pid===playerId;
-    return `<div class="rankrow${mine?" me":""}"><span>${i+1}. ${medal?medal+" ":""}${p.name}</span><span>${p.win}勝${p.loss}敗（${p.games}戦）</span></div>`;
+    const label=titledName(p.dev?DEV_TITLE_LABEL:null,medal||null,p.name);
+    return `<div class="rankrow${mine?" me":""}"><span>${i+1}. ${label}</span><span>${p.win}勝${p.loss}敗（${p.games}戦）</span></div>`;
   }).join("") || "<div style='opacity:.6'>まだ記録がありません</div>";
   let meRow="";
   if(res.me && !res.top.some(p=>p.pid===res.me.pid)){
-    meRow=`<div class="rankrow me" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)"><span>あなた：${res.me.rank}位</span><span>${res.me.win}勝${res.me.loss}敗（${res.me.games}戦）</span></div>`;
+    const meLabel=titledName(res.me.dev?DEV_TITLE_LABEL:null,null,"あなた");
+    meRow=`<div class="rankrow me" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)"><span>${meLabel}：${res.me.rank}位</span><span>${res.me.win}勝${res.me.loss}敗（${res.me.games}戦）</span></div>`;
   }
   $("rankingBody").innerHTML=rows+meRow;
   $("rankingPrevSeason").textContent = res.prevTop3.length
-    ? "先月の王者："+res.prevTop3.map((p,i)=>`${medalFor(i)} ${p.name}`).join("　")
+    ? "先月の王者："+res.prevTop3.map((p,i)=>titledName(p.dev?DEV_TITLE_LABEL:null,medalFor(i)||null,p.name)).join("　")
     : "先月の記録なし";
 }
 async function loadRanking(tab){
@@ -1038,6 +1052,16 @@ $("rankTabPvp").onclick=()=>loadRanking("pvp");
 $("rankTabCpu").onclick=()=>loadRanking("cpu");
 $("btnRankRename").onclick=()=>openRegisterModal(null);
 $("btnRankClose").onclick=()=>{$("rankingOverlay").classList.remove("show")};
+$("btnCopyPlayerId").onclick=async ()=>{
+  if(!playerId){ $("btnCopyPlayerId").textContent="先に登録してください"; setTimeout(()=>{$("btnCopyPlayerId").textContent="🔑 自分のIDをコピー";},1500); return; }
+  try{
+    await navigator.clipboard.writeText(playerId);
+    $("btnCopyPlayerId").textContent="コピーしました！";
+  }catch(e){
+    $("btnCopyPlayerId").textContent="コピー失敗";
+  }
+  setTimeout(()=>{$("btnCopyPlayerId").textContent="🔑 自分のIDをコピー";},1500);
+};
 
 /* ============ 通信 ============ */
 let ws, seat=null, myName="でんこう";
@@ -1533,8 +1557,8 @@ function render(){
   if(!snap)return;
   if(!bgmStarted){bgmStarted=true;Snd.startBgm()}
   $("lobby").style.display="none";$("game").classList.add("on");
-  $("mName").textContent=snap.myTitle?`${snap.myTitle} ${snap.myName}`:snap.myName;
-  $("oName").textContent=snap.oppTitle?`${snap.oppTitle} ${snap.oppName}`:snap.oppName;
+  $("mName").textContent=titledName(snap.myDevTitle,snap.myTitle,snap.myName);
+  $("oName").textContent=titledName(snap.oppDevTitle,snap.oppTitle,snap.oppName);
   $("mHp").textContent=snap.me.hp;$("oHp").textContent=snap.opp.hp;
   $("mHp").className="hp"+(snap.me.hp<=6?" low":"");$("oHp").className="hp"+(snap.opp.hp<=6?" low":"");
   $("mEp").textContent=snap.me.ep;$("oEp").textContent=snap.opp.ep;
