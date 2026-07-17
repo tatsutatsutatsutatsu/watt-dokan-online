@@ -109,6 +109,9 @@
   .board.enemy{border-style:dashed}
   .unit{width:76px;height:88px;border:2px solid var(--copper);border-radius:8px;background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:4px 2px;position:relative;font-size:.6rem;text-align:center;animation:pop .25s cubic-bezier(.2,1.4,.4,1)}
   @keyframes pop{from{transform:scale(.5);opacity:0}}
+  /* カードのドット絵アイコン画像。親のem/cr-emの font-size に合わせて 1em 四方で表示し、
+     拡大してもドットがボケないよう pixelated を適用。画像が無いカードは絵文字にフォールバック */
+  .iconimg{width:1em;height:1em;object-fit:contain;vertical-align:middle;image-rendering:-moz-crisp-edges;image-rendering:pixelated}
   .unit .em{font-size:1.5rem;line-height:1.2}
   .unit .nm{line-height:1.1;overflow:hidden;max-height:2.2em}
   .unit .st{display:flex;justify-content:space-between;width:100%;padding:0 4px;font-size:.8rem}
@@ -413,13 +416,27 @@ async function loadCardPool(){
   }catch(e){ CARD_POOL=[]; }
   renderCardList();
 }
+/* ---- カードアイコン：/icons/<id>.png があればドット絵画像、無ければ絵文字にフォールバック ---- */
+/* 盤面ユニットは cid（カードの安定ID）、それ以外（手札・/cards由来）は id を持つ */
+const MISSING_ICONS=new Set(); // 一度404になったIDは以降imgを作らず絵文字にする（無駄な404リクエスト抑制）
+function iconInner(card){
+  const id=card.cid||card.id;
+  if(!id||MISSING_ICONS.has(id))return card.e;
+  return `<img class="iconimg" src="/icons/${id}.png" alt="" data-e="${card.e}" data-id="${id}" onerror="iconFallback(this)">`;
+}
+function iconFallback(img){
+  const id=img.getAttribute("data-id"); if(id)MISSING_ICONS.add(id);
+  img.replaceWith(document.createTextNode(img.getAttribute("data-e")||""));
+}
+window.iconFallback=iconFallback;
+
 function cardRowHTML(card){
   const statHtml = card.t==="f"
     ? `<span class="atk">⚡${card.a}</span> / <span class="hp2">❤${card.h}</span>`
     : "スペル";
   return `
     <div class="cr-top">
-      <span class="cr-em">${card.e}</span>
+      <span class="cr-em">${iconInner(card)}</span>
       <span class="cr-name">${card.n}${card.kw?` <span class="cr-kw">(${card.kw})</span>`:""}</span>
       <span class="cr-cost">${card.c}W</span>
     </div>
@@ -1041,7 +1058,7 @@ $("btnRetireConfirm").onclick=()=>{
 function openCardDetail(card){
   const hpVal = card.hp!==undefined ? card.hp : card.h;
   $("cdBox").innerHTML=`
-    <span class="em">${card.e}</span>
+    <span class="em">${iconInner(card)}</span>
     <span class="nm">${card.n}</span>
     ${card.c!==undefined?`<span class="cost">${card.c}W</span>`:""}
     ${card.type?`<span class="type">${card.type}</span>`:""}
@@ -1099,7 +1116,7 @@ function unitEl(u,mine,i){
   d.className="unit"+(u.evolved?" evolved":"");
   d.dataset.id=u.id;
   d.innerHTML=`${u.kw?`<span class="kw">${KW_ICON[u.kw]||""}</span>`:""}
-    <span class="em">${u.e}${u.evolved?"✨":""}</span><span class="nm">${u.n}</span>
+    <span class="em">${iconInner(u)}${u.evolved?"✨":""}</span><span class="nm">${u.n}</span>
     <span class="st"><span class="atk">${u.a}</span><span class="hp2 ${u.hp<u.maxhp?"dmg":""}">${u.hp}</span></span>`;
   if(mine){
     if(snap.yourTurn&&spellMode===null&&(u.canAtk||(snap.me.canEvolve&&!u.evolved)))d.classList.add("ready");
@@ -1120,7 +1137,7 @@ function cardEl(card,i){
     &&!(card.tg&&!snap.opp.board.length);
   if(ok)d.classList.add("playable");
   if(selHand===i)d.classList.add("sel");
-  d.innerHTML=`<span class="cost">${card.c}W</span><span class="em">${card.e}</span>
+  d.innerHTML=`<span class="cost">${card.c}W</span><span class="em">${iconInner(card)}</span>
     <span class="nm">${card.n}${card.kw?`<br><span style="color:var(--copper)">${card.kw}</span>`:""}</span>
     <span class="tx">${card.tx}</span>
     ${card.t==="f"?`<span class="st"><span class="atk">${card.a}</span><span class="hp2">${card.h}</span></span>`
