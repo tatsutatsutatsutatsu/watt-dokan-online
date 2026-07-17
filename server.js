@@ -145,7 +145,17 @@ function makeRoom(code, cpu) {
     disconnectTimers: { A: null, B: null },
     rematch: { A: false, B: false },
     cpuBusy: false,
+    difficulty: "normal", // ソロモードのCPU難易度（room単位で保持し再戦後も維持）
   };
+}
+/* ==================== CPU難易度 ==================== */
+const DIFFICULTY_INFO = {
+  easy:   { emoji:"🐣", label:"よわい" },
+  normal: { emoji:"🤖", label:"ふつう" },
+  hard:   { emoji:"👹", label:"つよい" },
+};
+function normDifficulty(d) {
+  return (d === "easy" || d === "hard") ? d : "normal";
 }
 
 /* ==================== ゲームエンジン ==================== */
@@ -475,8 +485,8 @@ function armMulliganTimer(room) {
 }
 
 /* ==================== CPU（ソロモード） ==================== */
-function cpuPick(G) {
-  const S = G.S.B, E = G.S.A;
+/* ---- ふつう：現行ロジック（プレイはコスト降順、攻撃は簡易トレード判定＋確率的な顔面選好） ---- */
+function normalPick(S, E) {
   const cands = S.hand.map((c,i) => ({c,i}))
     .filter(x => x.c.c <= S.w)
     .filter(x => x.c.t==="s" || S.board.length < BOARD_MAX)
@@ -490,43 +500,187 @@ function cpuPick(G) {
   if (pick.c.tg) { ti = 0; E.board.forEach((u,j) => { if (u.a > E.board[ti].a) ti = j; }); }
   return { i: pick.i, ti };
 }
+function normalAttackChoice(u, E) {
+  const guards = E.board.filter(x => x.kw === "守護");
+  if (guards.length) return { target:"unit", ti: E.board.indexOf(guards[0]) };
+  const tr = E.board.findIndex(x => x.hp<=u.a && x.a<u.hp && x.a>=3);
+  if (tr>=0 && Math.random()<.6) return { target:"unit", ti:tr };
+  if (!u.rushOnly) return { target:"leader" };
+  if (E.board.length) return { target:"unit", ti:0 };
+  return null;
+}
+/* ---- よわい：ランダム選択・進化なし・リーサルを高頻度で逃す ---- */
+function easyPick(S, E) {
+  const cands = S.hand.map((c,i) => ({c,i}))
+    .filter(x => x.c.c <= S.w)
+    .filter(x => x.c.t==="s" || S.board.length < BOARD_MAX)
+    .filter(x => !(x.c.tg && !E.board.length))
+    .filter(x => !(x.c.fx==="heal3" && S.hp >= 17))
+    .filter(x => !(x.c.fx==="aoe3" && E.board.length < 2));
+  if (!cands.length) return null;
+  const pick = cands[Math.floor(Math.random()*cands.length)];
+  let ti;
+  if (pick.c.tg) ti = Math.floor(Math.random()*E.board.length);
+  return { i: pick.i, ti };
+}
+function easyAttackChoice(u, E) {
+  const guards = E.board.filter(x => x.kw === "守護");
+  if (guards.length) {
+    const g = guards[Math.floor(Math.random()*guards.length)];
+    return { target:"unit", ti: E.board.indexOf(g) };
+  }
+  const canFace = !u.rushOnly;
+  const hasUnits = E.board.length > 0;
+  // 顔面よりユニット攻撃を選びがち＝リーサルがあっても高確率で見逃す
+  if (hasUnits && (!canFace || Math.random() < 0.65)) return { target:"unit", ti: Math.floor(Math.random()*E.board.length) };
+  if (canFace) return { target:"leader" };
+  if (hasUnits) return { target:"unit", ti: Math.floor(Math.random()*E.board.length) };
+  return null;
+}
+/* ---- つよい：ふつうベース＋リーサル検出・除去の質・安全なトレード優先 ---- */
+function hardPick(S, E) {
+  const cands = S.hand.map((c,i) => ({c,i}))
+    .filter(x => x.c.c <= S.w)
+    .filter(x => x.c.t==="s" || S.board.length < BOARD_MAX)
+    .filter(x => !(x.c.tg && !E.board.length))
+    .filter(x => !(x.c.fx==="heal3" && S.hp >= 17))
+    .filter(x => !(x.c.fx==="aoe3" && E.board.length < 2))
+    .sort((a,b) => b.c.c - a.c.c);
+  if (!cands.length) return null;
+  const pick = cands[0];
+  let ti;
+  if (pick.c.tg) {
+    if (pick.c.fx === "kill") {
+      // 漏電遮断器（確定除去）：最も高スタッツ（攻撃力＋最大体力）のユニットへ
+      ti = 0;
+      E.board.forEach((u,j) => { if ((u.a+u.maxhp) > (E.board[ti].a+E.board[ti].maxhp)) ti = j; });
+    } else if (pick.c.fx === "dmg3") {
+      // ショート（3ダメージ）：体力3以下で攻撃力が高いユニットを優先（過剰打点を避ける）
+      const lowHp = E.board.map((u,j)=>({u,j})).filter(o => o.u.hp <= 3);
+      if (lowHp.length) {
+        let best = lowHp[0];
+        lowHp.forEach(o => { if (o.u.a > best.u.a) best = o; });
+        ti = best.j;
+      } else {
+        ti = 0; E.board.forEach((u,j) => { if (u.a > E.board[ti].a) ti = j; });
+      }
+    } else {
+      ti = 0; E.board.forEach((u,j) => { if (u.a > E.board[ti].a) ti = j; });
+    }
+  }
+  return { i: pick.i, ti };
+}
+function hardAttackChoice(u, E) {
+  const guards = E.board.filter(x => x.kw === "守護");
+  if (guards.length) return { target:"unit", ti: E.board.indexOf(guards[0]) };
+  // 一方的に倒せる（自分が生き残り相手が死ぬ）トレードを優先。複数あれば最も価値の高い（攻撃力の高い）相手を狙う
+  let bestJ = -1;
+  E.board.forEach((x,j) => {
+    if (u.a >= x.hp && x.a < u.hp) { if (bestJ<0 || x.a > E.board[bestJ].a) bestJ = j; }
+  });
+  if (bestJ>=0) return { target:"unit", ti:bestJ };
+  if (!u.rushOnly) return { target:"leader" };
+  if (E.board.length) return { target:"unit", ti:0 };
+  return null;
+}
+/* リーサルプラン：守護がいれば最小限のユニットで処理し、残りの合計攻撃力で
+   顔面リーサルが届くなら、攻撃者ID/対象IDの実行順リストを返す。届かなければnull。
+   boardは呼び出し側で用意した「行動可能なユニットの配列（{id,a,hp,rushOnly}）」を渡す。 */
+function planLethal(boardUnits, E) {
+  const attackers = boardUnits.filter(u => u.canAtk);
+  if (!attackers.length) return null;
+  const guards = E.board.filter(x => x.kw === "守護");
+  let pool = attackers.slice();
+  const steps = [];
+  for (const g of guards) {
+    pool.sort((a,b) => b.a - a.a); // 最小限のユニット数で処理するため、攻撃力が高い順から必要数だけ使う
+    let remain = g.hp;
+    const used = [];
+    for (const p of pool) {
+      if (remain <= 0) break;
+      used.push(p);
+      remain -= p.a;
+    }
+    if (remain > 0) return null; // この守護を処理しきれない＝このターンのリーサルは不成立
+    used.forEach(p => { steps.push({ attackerId:p.id, targetType:"unit", targetId:g.id }); });
+    pool = pool.filter(p => !used.includes(p));
+  }
+  const faceAttackers = pool.filter(p => !p.rushOnly);
+  const totalFaceDmg = faceAttackers.reduce((s,p) => s+p.a, 0);
+  if (totalFaceDmg < E.hp) return null;
+  faceAttackers.forEach(p => steps.push({ attackerId:p.id, targetType:"leader" }));
+  return steps;
+}
+
 function scheduleCpuTurn(room) {
   const epoch = room.epoch;
-  let guard = 0, aguard = 0;
+  const difficulty = normDifficulty(room.difficulty);
+  let guard = 0, aguard = 0, hardLethalTried = false;
+
   function playStep() {
     if (room.epoch!==epoch || !room.G || room.G.result || room.G.active!=="B") { room.cpuBusy=false; return; }
     if (guard++ >= 20) return afterPlay();
-    const p = cpuPick(room.G);
+    const S = room.G.S.B, E = room.G.S.A;
+    const p = difficulty==="easy" ? easyPick(S,E) : difficulty==="hard" ? hardPick(S,E) : normalPick(S,E);
     if (!p) return afterPlay();
     applyAction(room, "B", { a:"play", hand:p.i, ti:p.ti });
     setTimeout(playStep, 700);
   }
   function afterPlay() {
     if (room.epoch!==epoch || !room.G || room.G.result) { room.cpuBusy=false; return; }
-    const S = room.G.S.B;
+    if (difficulty === "easy") { attackStep(); return; } // 進化：使わない
+    const S = room.G.S.B, E = room.G.S.A;
     if (S.tn >= EVO.B.turn && S.ep > 0 && S.board.length) {
-      const cand = S.board.map((u,j)=>({u,j})).filter(o=>!o.u.evolved).sort((a,b)=>(b.u.a+b.u.hp)-(a.u.a+a.u.hp))[0];
-      if (cand) { applyAction(room, "B", { a:"evolve", i:cand.j }); setTimeout(attackStep, 700); return; }
+      let evolveJ = null;
+      if (difficulty === "hard") {
+        // リーサルに必要なら、攻撃力が伸びて届くユニットを優先的に進化
+        const notEvolved = S.board.map((u,j)=>({u,j})).filter(o=>!o.u.evolved);
+        for (const o of notEvolved) {
+          const hyp = S.board.map((u,j) => j===o.j ? { ...u, a:u.a+2, canAtk:true, rushOnly:false } : u);
+          if (planLethal(hyp, E)) { evolveJ = o.j; break; }
+        }
+      }
+      if (evolveJ === null) {
+        const cand = S.board.map((u,j)=>({u,j})).filter(o=>!o.u.evolved).sort((a,b)=>(b.u.a+b.u.hp)-(a.u.a+a.u.hp))[0];
+        if (cand) evolveJ = cand.j;
+      }
+      if (evolveJ !== null) { applyAction(room, "B", { a:"evolve", i:evolveJ }); setTimeout(attackStep, 700); return; }
     }
     attackStep();
   }
+  function executeLethalSteps(steps, idx) {
+    if (room.epoch!==epoch || !room.G || room.G.result) { room.cpuBusy=false; return; }
+    if (idx >= steps.length) { setTimeout(attackStep, 700); return; }
+    const S = room.G.S.B, E = room.G.S.A;
+    const step = steps[idx];
+    const ai = S.board.findIndex(u => u.id===step.attackerId);
+    if (ai<0 || !S.board[ai].canAtk) { executeLethalSteps(steps, idx+1); return; }
+    let act;
+    if (step.targetType === "leader") {
+      act = { a:"attack", i:ai, target:"leader" };
+    } else {
+      const ti = E.board.findIndex(x => x.id===step.targetId);
+      if (ti<0) { executeLethalSteps(steps, idx+1); return; }
+      act = { a:"attack", i:ai, ti };
+    }
+    applyAction(room, "B", act);
+    setTimeout(() => executeLethalSteps(steps, idx+1), 700);
+  }
   function attackStep() {
     if (room.epoch!==epoch || !room.G || room.G.result || room.G.active!=="B") { room.cpuBusy=false; return; }
-    if (aguard++ >= 20) return finish();
     const S = room.G.S.B, E = room.G.S.A;
+    if (difficulty === "hard" && !hardLethalTried) {
+      hardLethalTried = true;
+      const plan = planLethal(S.board, E);
+      if (plan) { executeLethalSteps(plan, 0); return; }
+    }
+    if (aguard++ >= 20) return finish();
     const ai = S.board.findIndex(u => u.canAtk);
     if (ai < 0) return finish();
     const u = S.board[ai];
-    const guards = E.board.map((x,j)=>({x,j})).filter(o=>o.x.kw==="守護");
-    let act = null;
-    if (guards.length) act = { a:"attack", i:ai, ti:guards[0].j };
-    else {
-      const tr = E.board.findIndex(x => x.hp<=u.a && x.a<u.hp && x.a>=3);
-      if (tr>=0 && Math.random()<.6) act = { a:"attack", i:ai, ti:tr };
-      else if (!u.rushOnly) act = { a:"attack", i:ai, target:"leader" };
-      else if (E.board.length) act = { a:"attack", i:ai, ti:0 };
-      else { u.canAtk=false; setTimeout(attackStep, 10); return; }
-    }
+    const choice = difficulty==="easy" ? easyAttackChoice(u,E) : difficulty==="hard" ? hardAttackChoice(u,E) : normalAttackChoice(u,E);
+    if (!choice) { u.canAtk=false; setTimeout(attackStep, 10); return; }
+    const act = choice.target==="leader" ? { a:"attack", i:ai, target:"leader" } : { a:"attack", i:ai, ti:choice.ti };
     applyAction(room, "B", act);
     setTimeout(attackStep, 700);
   }
@@ -584,9 +738,11 @@ wss.on("connection", (ws) => {
     else if (m.type === "solo") {
       const code = genCode();
       const room = makeRoom(code, true);
+      room.difficulty = normDifficulty(m.difficulty);
+      const diffInfo = DIFFICULTY_INFO[room.difficulty];
       const token = genToken();
       room.seats.A = { ws, name: cleanName(m.name) || "でんこう⚡", token, connected:true, deck: resolveDeck(m.deck) };
-      room.seats.B = { ws:null, name:"CPU🤖", token:null, connected:true, isCpu:true, deck: randomValidDeck() };
+      room.seats.B = { ws:null, name:`CPU${diffInfo.emoji}${diffInfo.label}`, token:null, connected:true, isCpu:true, deck: randomValidDeck() };
       rooms.set(code, room);
       ws.roomCode = code; ws.seat = "A";
       send(ws, { type:"created", code, token, solo:true });
