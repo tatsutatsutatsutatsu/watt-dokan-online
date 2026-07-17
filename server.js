@@ -234,7 +234,24 @@ function makeRoom(code, cpu) {
     rematch: { A: false, B: false },
     cpuBusy: false,
     difficulty: "normal", // ソロモードのCPU難易度（room単位で保持し再戦後も維持）
+    emoteLast: { A: 0, B: 0 }, // 連打防止（1人3秒に1回まで）
   };
+}
+/* ==================== エモート（定型スタンプ） ==================== */
+const EMOTE_LIST = ["よろしく！👋", "ナイス⚡", "ドカン！💥", "やるね🔥", "ありがとう🙏", "ぐぬぬ😖"];
+const EMOTE_COOLDOWN_MS = 3000;
+function emitEmote(room, seatX, id) {
+  const now = Date.now();
+  if (now - (room.emoteLast[seatX] || 0) < EMOTE_COOLDOWN_MS) return; // 超過は無視
+  room.emoteLast[seatX] = now;
+  ["A", "B"].forEach(s => {
+    const seat = room.seats[s];
+    if (seat && seat.ws && seat.connected) send(seat.ws, { type:"emote", seat:seatX, id });
+  });
+}
+function triggerCpuEmote(room, id, prob) {
+  if (!room.cpu || Math.random() >= prob) return;
+  emitEmote(room, "B", id);
 }
 /* ==================== CPU難易度 ==================== */
 const DIFFICULTY_INFO = {
@@ -312,6 +329,7 @@ function triggerLastword(G, seatX, u) {
 function processDeaths(room) {
   const G = room.G;
   let guard = 0;
+  const triggered = [];
   while (guard++ < 50) {
     const deadA = G.S.A.board.filter(u => u.hp <= 0).map(u => ({ u, seatX:"A" }));
     const deadB = G.S.B.board.filter(u => u.hp <= 0).map(u => ({ u, seatX:"B" }));
@@ -319,8 +337,9 @@ function processDeaths(room) {
     if (!dead.length) break;
     G.S.A.board = G.S.A.board.filter(u => u.hp > 0);
     G.S.B.board = G.S.B.board.filter(u => u.hp > 0);
-    dead.forEach(({ u, seatX }) => { if (u.kw === "ラストワード") triggerLastword(G, seatX, u); });
+    dead.forEach(({ u, seatX }) => { if (u.kw === "ラストワード") { triggerLastword(G, seatX, u); triggered.push({ id:"u"+u.id, lw:u.lw }); } });
   }
+  return triggered;
 }
 function snapshotHP(G) {
   const m = { leaderA: G.S.A.hp, leaderB: G.S.B.hp };
@@ -467,9 +486,10 @@ function applyAction(room, seatX, act) {
       const dmg = u.a;
       op.hp -= dmg;
       let atkMsg = `${nm}：${u.n}がリーダーに${dmg}ダメージ！💥`;
-      if (u.kw === "ドレイン" && dmg > 0) { me.hp = Math.min(20, me.hp + dmg); atkMsg += `（🩸ドレインで${dmg}回復）`; }
+      evMeta = { seat:seatX, unitId:u.id, targetSeat: other(seatX), targetLeader:true };
+      if (u.kw === "ドレイン" && dmg > 0) { me.hp = Math.min(20, me.hp + dmg); atkMsg += `（🩸ドレインで${dmg}回復）`; evMeta.drainHeal = dmg; }
       setMsg(G, atkMsg);
-      evType = "attack"; evMeta = { seat:seatX, unitId:u.id, targetSeat: other(seatX), targetLeader:true };
+      evType = "attack";
     } else {
       const t = op.board[act.ti]; if (!t) return;
       if (guards.length && t.kw !== "守護") return;
@@ -477,10 +497,11 @@ function applyAction(room, seatX, act) {
       const dmgToT = u.a, dmgToU = t.a;
       t.hp -= dmgToT; u.hp -= dmgToU;
       let atkMsg = `${nm}：${u.n} ⚔ ${t.n}`;
-      if (u.kw === "ドレイン" && dmgToT > 0) { me.hp = Math.min(20, me.hp + dmgToT); atkMsg += `（🩸ドレインで${dmgToT}回復）`; }
-      if (u.kw === "必殺" && dmgToT > 0) { t.hp = -1; atkMsg += `（☠️必殺で撃破）`; }
+      evMeta = { seat:seatX, unitId:u.id, targetSeat: other(seatX), targetUnitId:t.id };
+      if (u.kw === "ドレイン" && dmgToT > 0) { me.hp = Math.min(20, me.hp + dmgToT); atkMsg += `（🩸ドレインで${dmgToT}回復）`; evMeta.drainHeal = dmgToT; }
+      if (u.kw === "必殺" && dmgToT > 0) { t.hp = -1; atkMsg += `（☠️必殺で撃破）`; evMeta.necroKillId = "u"+t.id; }
       setMsg(G, atkMsg);
-      evType = "attack"; evMeta = { seat:seatX, unitId:u.id, targetSeat: other(seatX), targetUnitId:t.id };
+      evType = "attack";
     }
   }
   else if (act.a === "end") {
@@ -489,7 +510,8 @@ function applyAction(room, seatX, act) {
   }
   else return;
 
-  processDeaths(room);
+  const cpuBoardBefore = room.cpu ? G.S.B.board.length : 0;
+  const lastwords = processDeaths(room);
   if (!G.result && (G.S.A.hp <= 0 || G.S.B.hp <= 0)) {
     G.result = G.S.A.hp <= 0 ? "B" : "A";
     G.phase = "over"; G.deadline = null;
@@ -499,8 +521,12 @@ function applyAction(room, seatX, act) {
     setMsg(G, `${G.names[G.result]}の勝利！`);
   }
   const { diffs, deaths } = diffHP(before, G);
-  if (evType) pushEvent(G, { type:evType, diffs, deaths, ...evMeta });
+  if (evType) pushEvent(G, { type:evType, diffs, deaths, lastwords, ...evMeta });
   broadcast(room);
+
+  if (room.cpu && seatX === "A" && G.S.B.board.length < cpuBoardBefore) {
+    triggerCpuEmote(room, 5, 0.3); // 被除去：ぐぬぬ😖
+  }
 
   if (room.cpu && G.phase === "battle" && G.active === "B" && !G.result && !room.cpuBusy) {
     room.cpuBusy = true;
@@ -737,7 +763,7 @@ function scheduleCpuTurn(room) {
         const cand = S.board.map((u,j)=>({u,j})).filter(o=>!o.u.evolved).sort((a,b)=>(b.u.a+b.u.hp)-(a.u.a+a.u.hp))[0];
         if (cand) evolveJ = cand.j;
       }
-      if (evolveJ !== null) { applyAction(room, "B", { a:"evolve", i:evolveJ }); setTimeout(attackStep, 700); return; }
+      if (evolveJ !== null) { applyAction(room, "B", { a:"evolve", i:evolveJ }); triggerCpuEmote(room, 2, 0.25); setTimeout(attackStep, 700); return; }
     }
     attackStep();
   }
@@ -765,7 +791,7 @@ function scheduleCpuTurn(room) {
     if (difficulty === "hard" && !hardLethalTried) {
       hardLethalTried = true;
       const plan = planLethal(S.board, E);
-      if (plan) { executeLethalSteps(plan, 0); return; }
+      if (plan) { triggerCpuEmote(room, 3, 0.3); executeLethalSteps(plan, 0); return; }
     }
     if (aguard++ >= 20) return finish();
     const ai = S.board.findIndex(u => u.canAtk);
@@ -872,6 +898,13 @@ wss.on("connection", (ws) => {
     else if (m.type === "rematch") {
       const room = rooms.get(ws.roomCode); if (!room) return;
       if (ws.seat) requestRematch(room, ws.seat);
+    }
+
+    else if (m.type === "emote") {
+      const room = rooms.get(ws.roomCode); if (!room || !room.G) return;
+      const seatX = ws.seat; if (!seatX) return;
+      if (!Number.isInteger(m.id) || m.id < 0 || m.id >= EMOTE_LIST.length) return;
+      emitEmote(room, seatX, m.id);
     }
 
     else if (m.type === "register") {

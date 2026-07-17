@@ -222,6 +222,32 @@
   .dmgpop.neg{color:var(--danger)} .dmgpop.pos{color:var(--pilot)}
   @keyframes dmgfloat{0%{opacity:0;transform:translate(-50%,0)}15%{opacity:1}100%{opacity:0;transform:translate(-50%,-34px)}}
 
+  /* ---- キーワード発動アイコンポップ（ラストワード💀／ドレイン🩸／必殺☠️） ---- */
+  .iconpop{position:fixed;transform:translate(-50%,-10px);font-size:1.5rem;pointer-events:none;z-index:51;animation:iconpopfx .65s ease-out forwards;text-shadow:0 0 6px #000}
+  @keyframes iconpopfx{0%{opacity:0;transform:translate(-50%,6px) scale(.6)}25%{opacity:1;transform:translate(-50%,-6px) scale(1.2)}100%{opacity:0;transform:translate(-50%,-32px) scale(1)}}
+
+  /* ---- 進化の光るリング演出 ---- */
+  .unit.evolvering{animation:evoRing .7s ease-out}
+  @keyframes evoRing{0%{box-shadow:0 0 0 0 var(--cyan)}55%{box-shadow:0 0 0 9px rgba(91,208,255,.4)}100%{box-shadow:0 0 0 0 rgba(91,208,255,0)}}
+
+  /* ---- エモート ---- */
+  .emoterow{display:flex;align-items:center;gap:6px}
+  .emoterow .msgbar{flex:1}
+  .emotebtn{flex:0 0 auto;font-size:1.1rem;padding:6px 10px}
+  .overlay.emoteoverlay{z-index:64}
+  .emotegrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;width:100%;max-width:300px}
+  .emotegrid button{font-size:.8rem;padding:10px 6px}
+  .emotebubble{position:fixed;transform:translate(-50%,-100%);background:var(--panel2);border:2px solid var(--safety);border-radius:10px;padding:6px 10px;font-size:.78rem;white-space:nowrap;z-index:55;pointer-events:none;animation:emotepop .25s ease-out,emotefade 2s ease-in forwards}
+  @keyframes emotepop{from{transform:translate(-50%,-90%) scale(.7);opacity:0}to{transform:translate(-50%,-100%) scale(1);opacity:1}}
+  @keyframes emotefade{0%,80%{opacity:1}100%{opacity:0}}
+
+  /* ---- デッキ共有コード（インポート） ---- */
+  .overlay.deckcodeoverlay{z-index:67}
+
+  /* ---- 音量スライダー ---- */
+  .volrow{font-size:.7rem;display:flex;flex-direction:column;gap:4px;width:100%;text-align:left}
+  .volrow input[type=range]{width:100%;accent-color:var(--safety)}
+
   @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
 </style>
 </head>
@@ -286,6 +312,10 @@
     <div id="deckSummary" class="decksummary"></div>
     <div id="deckList" class="decklist"></div>
     <button id="btnDeckSave">保存</button>
+    <div style="display:flex;gap:8px">
+      <button class="ghost" id="btnDeckShare" style="flex:1">📤共有コード</button>
+      <button class="ghost" id="btnDeckImport" style="flex:1">📥インポート</button>
+    </div>
     <div class="err" id="deckErr"></div>
     <div class="note">タップで枚数0→1→2→0を切替。長押し（PCは右クリック）でカード詳細。</div>
   </div>
@@ -308,7 +338,10 @@
   <div class="oppbanner" id="oppBanner"></div>
 
   <div class="board enemy" id="oBoard"><span class="empty-hint">相手の盤面</span></div>
-  <div class="msgbar" id="msg">接続中…</div>
+  <div class="emoterow">
+    <div class="msgbar" id="msg">接続中…</div>
+    <button class="ghost emotebtn" id="btnEmote" title="エモート">😀</button>
+  </div>
   <div class="board" id="mBoard"><span class="empty-hint">家電を設置しよう（最大4台）</span></div>
 
   <div class="mulligan hidden" id="mulliPanel">
@@ -408,6 +441,23 @@
   </div>
 </div>
 
+<div class="overlay emoteoverlay" id="emoteOverlay">
+  <h2 style="font-size:1.3rem">😀 エモート</h2>
+  <div class="emotegrid" id="emoteGrid"></div>
+  <button class="ghost" id="btnEmoteClose">閉じる</button>
+</div>
+
+<div class="overlay deckcodeoverlay" id="deckCodeOverlay">
+  <h2 style="font-size:1.3rem">📥 デッキインポート</h2>
+  <p>共有コードを貼り付けてください</p>
+  <input id="deckCodeInput" placeholder="WD1-xxxx">
+  <div class="err" id="deckCodeErr"></div>
+  <div class="btnrow">
+    <button id="btnDeckCodeConfirm">読み込む</button>
+    <button class="ghost" id="btnDeckCodeCancel">キャンセル</button>
+  </div>
+</div>
+
 <div class="soundmodal show" id="soundModal">
   <div class="smbox">
     <div class="smtitle">⚡ワットでドカン！<small>CARD BATTLE ONLINE</small></div>
@@ -415,6 +465,14 @@
     <div class="smrow">
       <button id="btnSoundOn">🔊 サウンドONで遊ぶ</button>
       <button class="ghost" id="btnSoundOff">🔇 OFFで遊ぶ</button>
+    </div>
+    <div class="smrow">
+      <label class="volrow">BGM音量　<span id="bgmVolLabel">50%</span>
+        <input type="range" id="bgmVolSlider" min="0" max="100" value="50">
+      </label>
+      <label class="volrow">効果音音量　<span id="sfxVolLabel">50%</span>
+        <input type="range" id="sfxVolSlider" min="0" max="100" value="50">
+      </label>
     </div>
   </div>
 </div>
@@ -617,11 +675,92 @@ $("btnDeckSave").onclick=()=>{
 };
 updateActiveDeckInfo();
 
+/* ---- デッキ共有コード ----
+   形式：WD1-<base36数値>。カードの並び順は/cardsが返す固定順（CARD_POOL）を使い、
+   各カードの採用枚数(0/1/2)を3進数の桁として並べ、先頭に番兵桁1を立てた数をBigIntでbase36化する。
+   末尾の0（未採用カード）はトリムして短縮するが、桁数自体がデッキの長さを表すため復元は一意に定まる。
+   将来カードが増えてもCARD_POOLの末尾に追加されるだけなので、古いコードはそのまま読める。 */
+function bigIntToBase36(n){
+  const digits="0123456789abcdefghijklmnopqrstuvwxyz";
+  if(n===0n)return "0";
+  let s="",x=n;
+  while(x>0n){ s=digits[Number(x%36n)]+s; x/=36n; }
+  return s;
+}
+function base36ToBigInt(str){
+  const digits="0123456789abcdefghijklmnopqrstuvwxyz";
+  let n=0n;
+  for(const ch of str.toLowerCase()){
+    const d=digits.indexOf(ch);
+    if(d<0)return null;
+    n=n*36n+BigInt(d);
+  }
+  return n;
+}
+function encodeDeckToCode(ids){
+  if(!CARD_POOL.length)return null;
+  const counts={};
+  ids.forEach(id=>{counts[id]=(counts[id]||0)+1;});
+  const digitsArr=CARD_POOL.map(c=>counts[c.id]||0);
+  while(digitsArr.length&&digitsArr[digitsArr.length-1]===0)digitsArr.pop();
+  let val=1n;
+  digitsArr.forEach(d=>{val=val*3n+BigInt(d);});
+  return "WD1-"+bigIntToBase36(val);
+}
+function decodeCodeToIds(code){
+  const m=/^WD1-([0-9A-Za-z]+)$/.exec((code||"").trim());
+  if(!m)return {error:"コードの形式が正しくありません"};
+  const val=base36ToBigInt(m[1]);
+  if(val===null||val<=0n)return {error:"コードの形式が正しくありません"};
+  const trits=[];
+  let x=val;
+  while(x>1n){ trits.unshift(Number(x%3n)); x/=3n; }
+  if(x!==1n)return {error:"コードが壊れています"};
+  if(!CARD_POOL.length)return {error:"カードデータを読み込み中です。しばらくしてからお試しください"};
+  if(trits.length>CARD_POOL.length)return {error:"未対応のバージョンのコードです"};
+  const ids=[];
+  const counts={};
+  trits.forEach((d,i)=>{
+    const card=CARD_POOL[i];
+    counts[card.id]=d;
+    for(let k=0;k<d;k++)ids.push(card.id);
+  });
+  if(Object.values(counts).some(n=>n>2))return {error:"コードが壊れています"};
+  if(ids.length!==DECK_SIZE)return {error:`枚数が不正です（${ids.length}/20枚相当）`};
+  return {ids};
+}
+$("btnDeckShare").onclick=async ()=>{
+  if(deckTotal()!==DECK_SIZE){ $("deckErr").textContent="20枚ちょうどにしてから共有できます"; return; }
+  const code=encodeDeckToCode(draftToIds());
+  if(!code){ $("deckErr").textContent="カードデータを読み込み中です"; return; }
+  try{
+    await navigator.clipboard.writeText(code);
+    $("deckErr").textContent=`コピーしました：${code}`;
+  }catch(e){
+    $("deckErr").textContent=`コード：${code}（コピー失敗、手動でコピーしてください）`;
+  }
+};
+$("btnDeckImport").onclick=()=>{
+  $("deckCodeInput").value="";$("deckCodeErr").textContent="";
+  $("deckCodeOverlay").classList.add("show");
+};
+$("btnDeckCodeCancel").onclick=()=>{$("deckCodeOverlay").classList.remove("show");};
+$("btnDeckCodeConfirm").onclick=()=>{
+  const res=decodeCodeToIds($("deckCodeInput").value);
+  if(res.error){ $("deckCodeErr").textContent=res.error; return; }
+  deckDraft={};
+  res.ids.forEach(id=>{deckDraft[id]=(deckDraft[id]||0)+1;});
+  renderDeckEditor();
+  $("deckCodeOverlay").classList.remove("show");
+  $("deckErr").textContent="インポートしました！保存を押して確定してください。";
+};
+
 /* ============ サウンド（効果音：Web Audioで自作チップチューン／BGM：自作音声ファイル2曲） ============ */
 const Snd=(()=>{
   let ctx=null,muted=false;
+  let bgmVol=0.5,sfxVol=0.5; // スライダー音量（0..1）。既存のミュート🔊ボタンとは独立
   const mf=n=>440*Math.pow(2,(n-69)/12); // MIDIノート→周波数
-  const BGM_VOL=0.5, BGM_FADE=0.2; // BGM用ゲイン・クロスフェード秒数（効果音とは独立）
+  const BGM_FADE=0.2; // BGMクロスフェード秒数（効果音とは独立）
   const BGM_FILES={battle:"bgm_battle.wav",pinch:"bgm_pinch.wav",home:"bgm_home.wav"};
   let bgmMuteGain=null; // BGM専用ミュートバス（🔊ボタンで効果音・BGM双方に効かせる）
   let bgmBuffers={battle:null,pinch:null,home:null};
@@ -641,7 +780,7 @@ const Snd=(()=>{
     if(muted)return;const c=ac();
     const o=c.createOscillator(),g=c.createGain();
     o.type=type;o.frequency.value=freq;
-    g.gain.setValueAtTime(vol,t0);
+    g.gain.setValueAtTime(vol*sfxVol,t0);
     g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
     o.connect(g).connect(c.destination);
     o.start(t0);o.stop(t0+dur+0.02);
@@ -651,7 +790,7 @@ const Snd=(()=>{
     const len=Math.floor(c.sampleRate*dur),buf=c.createBuffer(1,len,c.sampleRate),d=buf.getChannelData(0);
     for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len);
     const s=c.createBufferSource(),g=c.createGain();
-    s.buffer=buf;g.gain.value=vol;
+    s.buffer=buf;g.gain.value=vol*sfxVol;
     s.connect(g).connect(c.destination);s.start(t0);
   }
   /* --- BGM：短いループ音声2曲（バトル／ピンチ）を AudioBufferSourceNode でギャップレスループ再生 --- */
@@ -686,7 +825,7 @@ const Snd=(()=>{
     src.buffer=buf;src.loop=true;
     const g=c.createGain();
     g.gain.setValueAtTime(0,now);
-    g.gain.linearRampToValueAtTime(BGM_VOL,now+BGM_FADE);
+    g.gain.linearRampToValueAtTime(bgmVol,now+BGM_FADE);
     src.connect(g).connect(bgmMuteGain);
     src.start(now);
     bgmSource=src;bgmSourceGain=g;bgmTrack=name;
@@ -700,6 +839,13 @@ const Snd=(()=>{
     oldGain.gain.linearRampToValueAtTime(0,now+BGM_FADE);
     setTimeout(()=>{try{oldSrc.stop();}catch{}},BGM_FADE*1000+50);
     bgmSource=null;bgmSourceGain=null;bgmTrack=null;
+  }
+  function applyBgmVolumeLive(){
+    if(!bgmSourceGain)return;
+    const c=ac(),now=c.currentTime;
+    bgmSourceGain.gain.cancelScheduledValues(now);
+    bgmSourceGain.gain.setValueAtTime(bgmSourceGain.gain.value,now);
+    bgmSourceGain.gain.linearRampToValueAtTime(bgmVol,now+0.15);
   }
   /* --- 効果音：Aマイナー・150BPMの自作32ステップループ（0=休符）は廃止し、上記のbgm_battle/bgm_pinchに置き換え --- */
   return{
@@ -721,6 +867,8 @@ const Snd=(()=>{
       return muted;
     },
     toggle(){ return this.setMuted(!muted); },
+    setBgmVolume(v){ bgmVol=Math.max(0,Math.min(1,v)); applyBgmVolumeLive(); },
+    setSfxVolume(v){ sfxVol=Math.max(0,Math.min(1,v)); },
     place(){const t=ac().currentTime;tone(660,t,.07,"square",.12);tone(990,t+.07,.09,"square",.12)},
     attack(){const t=ac().currentTime;noise(t,.12,.25);tone(110,t,.12,"square",.2)},
     dmg(){const t=ac().currentTime;tone(330,t,.08,"sawtooth",.15);tone(220,t+.08,.12,"sawtooth",.15)},
@@ -728,6 +876,9 @@ const Snd=(()=>{
     turn(){const t=ac().currentTime;tone(880,t,.08,"square",.1);tone(1175,t+.09,.12,"square",.1)},
     win(){this.stopBgm();const t=ac().currentTime;[523,659,784,1047,784,1047].forEach((f,i)=>tone(f,t+i*.12,.2,"square",.14))},
     lose(){this.stopBgm();const t=ac().currentTime;[392,370,349,330].forEach((f,i)=>tone(f,t+i*.18,.3,"triangle",.15));noise(t+.7,.4,.3)},
+    lastword(){const t=ac().currentTime;tone(220,t,.1,"triangle",.15);tone(165,t+.09,.14,"triangle",.13)},
+    drain(){const t=ac().currentTime;tone(440,t,.08,"sine",.15);tone(660,t+.06,.1,"sine",.13)},
+    necro(){const t=ac().currentTime;noise(t,.08,.2);tone(90,t,.14,"sawtooth",.2)},
   };
 })();
 Snd.preload(); /* ページ読み込み時に両BGMをプリロード（デコードまで）しておく */
@@ -755,6 +906,22 @@ function toggleSound(){
 }
 $("btnBgm").onclick=toggleSound;
 $("btnBgmLobby").onclick=toggleSound;
+
+/* ---- 音量スライダー（BGM／効果音、0-100%・初期値50%、localStorageに保存） ---- */
+const BGM_VOL_KEY="wattdokan_bgm_vol", SFX_VOL_KEY="wattdokan_sfx_vol";
+function loadVolPct(key){
+  try{ const v=parseInt(localStorage.getItem(key),10); if(Number.isFinite(v)&&v>=0&&v<=100)return v; }catch{}
+  return 50;
+}
+function saveVolPct(key,v){ try{ localStorage.setItem(key,String(v)); }catch{} }
+(function initVolumeSliders(){
+  const bgmPct=loadVolPct(BGM_VOL_KEY), sfxPct=loadVolPct(SFX_VOL_KEY);
+  Snd.setBgmVolume(bgmPct/100); Snd.setSfxVolume(sfxPct/100);
+  $("bgmVolSlider").value=bgmPct; $("bgmVolLabel").textContent=bgmPct+"%";
+  $("sfxVolSlider").value=sfxPct; $("sfxVolLabel").textContent=sfxPct+"%";
+  $("bgmVolSlider").oninput=e=>{ const v=+e.target.value; $("bgmVolLabel").textContent=v+"%"; Snd.setBgmVolume(v/100); saveVolPct(BGM_VOL_KEY,v); };
+  $("sfxVolSlider").oninput=e=>{ const v=+e.target.value; $("sfxVolLabel").textContent=v+"%"; Snd.setSfxVolume(v/100); saveVolPct(SFX_VOL_KEY,v); };
+})();
 
 (function initSoundModal(){
   const pref=loadSoundPref();
@@ -954,6 +1121,7 @@ function dispatchMsg(m){
   else if(m.type==="opponentLeft"){clearSession();showResult(null,"相手が退出しました。");}
   else if(m.type==="rematchWait"){rematchWaiting=true;updateResultOverlay();}
   else if(m.type==="rematchRequested"){oppWantsRematch=true;updateResultOverlay();}
+  else if(m.type==="emote"){showEmoteBubble(m.seat,m.id);}
 }
 function setOppBanner(text){
   const b=$("oppBanner");
@@ -1055,6 +1223,17 @@ function spawnDmgPop(el,delta){
   document.body.appendChild(pop);
   setTimeout(()=>pop.remove(),750);
 }
+function spawnIconPop(el,icon){
+  if(!el)return;
+  const r=el.getBoundingClientRect();
+  const pop=document.createElement("div");
+  pop.className="iconpop";
+  pop.textContent=icon;
+  pop.style.left=(r.left+r.width/2)+"px";
+  pop.style.top=r.top+"px";
+  document.body.appendChild(pop);
+  setTimeout(()=>pop.remove(),650);
+}
 function playEvent(ev,prevSnap){
   return new Promise(resolve=>{
     const mySeat=prevSnap.mySeat;
@@ -1079,15 +1258,30 @@ function playEvent(ev,prevSnap){
       }
       extraDelay=170;
     }
+    if(ev.type==="evolve"){
+      const el=findUnitEl(ev.unitId);
+      if(el){ el.classList.remove("evolvering"); void el.offsetWidth; el.classList.add("evolvering"); }
+    }
     setTimeout(()=>{
       (ev.diffs||[]).forEach(d=>spawnDmgPop(idEl(d.id),d.delta));
       if((ev.diffs||[]).some(d=>d.delta<0))Snd.dmg();
+      if(ev.drainHeal){ spawnIconPop(findUnitEl(ev.unitId),"🩸"); Snd.drain(); }
+      if(ev.necroKillId){ spawnIconPop(findUnitEl(ev.necroKillId.slice(1)),"☠️"); Snd.necro(); }
     },extraDelay);
     (ev.deaths||[]).forEach(dd=>{
       const el=findUnitEl(dd.id.slice(1));
       if(el)el.classList.add("destroying");
     });
-    const hold = extraDelay + ((ev.deaths&&ev.deaths.length)?380: (ev.diffs&&ev.diffs.length?260:60));
+    const lastwords=ev.lastwords||[];
+    lastwords.forEach((lw,i)=>{
+      setTimeout(()=>{
+        spawnIconPop(findUnitEl(lw.id.slice(1)),"💀");
+        Snd.lastword();
+      },extraDelay+i*220);
+    });
+    const deathHold=(ev.deaths&&ev.deaths.length)?380:(ev.diffs&&ev.diffs.length?260:60);
+    const lwHold=lastwords.length?(lastwords.length-1)*220+380:0;
+    const hold = extraDelay + Math.max(deathHold,lwHold);
     setTimeout(resolve,Math.max(hold,60));
   });
 }
@@ -1203,6 +1397,45 @@ $("btnRetireConfirm").onclick=()=>{
   $("retireOverlay").classList.remove("show");
   doAction({a:"retire"});
 };
+
+/* ---- エモート（定型スタンプ） ---- */
+const EMOTE_LIST=["よろしく！👋","ナイス⚡","ドカン！💥","やるね🔥","ありがとう🙏","ぐぬぬ😖"];
+let lastEmoteSentAt=0;
+(function renderEmoteGrid(){
+  const g=$("emoteGrid");g.innerHTML="";
+  EMOTE_LIST.forEach((label,i)=>{
+    const b=document.createElement("button");
+    b.className="ghost";b.textContent=label;
+    b.onclick=()=>{sendEmote(i);$("emoteOverlay").classList.remove("show");};
+    g.appendChild(b);
+  });
+})();
+$("btnEmote").onclick=()=>{
+  if(!snap||snap.phase==="over")return;
+  $("emoteOverlay").classList.add("show");
+};
+$("btnEmoteClose").onclick=()=>{$("emoteOverlay").classList.remove("show");};
+function sendEmote(id){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  const now=Date.now();
+  if(now-lastEmoteSentAt<3000)return; // 連打防止（サーバー側でも検証）
+  lastEmoteSentAt=now;
+  ws.send(JSON.stringify({type:"emote",id}));
+}
+function showEmoteBubble(seatX,id){
+  const label=EMOTE_LIST[id];if(label===undefined)return;
+  const mine=seatX===seat;
+  const anchor=mine?$("mFace"):$("oFace");
+  if(!anchor)return;
+  const r=anchor.getBoundingClientRect();
+  const b=document.createElement("div");
+  b.className="emotebubble";
+  b.textContent=label;
+  b.style.left=(r.left+r.width/2)+"px";
+  b.style.top=r.top+"px";
+  document.body.appendChild(b);
+  setTimeout(()=>b.remove(),2000);
+}
 
 /* ---- カード詳細（長押し／右クリック） ---- */
 function openCardDetail(card){
