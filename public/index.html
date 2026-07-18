@@ -314,6 +314,7 @@
     <div>ルームコード</div>
     <div class="codeview" id="codeView">----</div>
     <div class="note">相手に同じURLを開いてもらい、<br>このコードを入力してもらってください。<br>対戦相手を待っています…</div>
+    <button class="ghost" id="btnCancelRoom">← ロビーに戻る</button>
   </div>
 
   <div class="box hidden" id="deckBox">
@@ -1205,6 +1206,11 @@ $("btnCreate").onclick=()=>{
   Snd.unlock();
   myName=($("nameInput").value.trim()||"先攻⚡");
   connectAndSend({type:"create",name:myName,deck:getActiveDeckIds(),playerId});
+};
+$("btnCancelRoom").onclick=()=>{
+  if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"cancelRoom"}));
+  clearSession();
+  location.reload();
 };
 $("btnJoin").onclick=()=>{
   Snd.unlock();
