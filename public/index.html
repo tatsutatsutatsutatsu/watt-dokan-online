@@ -248,10 +248,27 @@
   .volrow{font-size:.7rem;display:flex;flex-direction:column;gap:4px;width:100%;text-align:left}
   .volrow input[type=range]{width:100%;accent-color:var(--safety)}
 
+  /* ---- チュートリアルガイド ---- */
+  #tutDim{position:fixed;inset:0;background:rgba(10,12,15,.55);z-index:12;pointer-events:none;display:none}
+  #tutDim.show{display:block}
+  .tutskip{position:fixed;top:48px;right:8px;z-index:70;font-size:.65rem;padding:6px 10px}
+  .tutskip.hidden{display:none}
+  .tutbox{background:var(--panel);border:2px solid var(--cyan);border-radius:8px;padding:10px 12px;font-size:.75rem;line-height:1.6;display:flex;flex-direction:column;gap:8px}
+  .tutbox.hidden{display:none}
+  .tutbox .tutstep{color:var(--cyan);font-size:.65rem;opacity:.8}
+  .tutbox .tutnext{align-self:flex-end;font-size:.7rem;padding:6px 12px}
+  .tutbox .tutnext.hidden{display:none}
+  .tut-target{position:relative;z-index:13;outline:3px solid var(--cyan);outline-offset:2px;box-shadow:0 0 14px var(--cyan);animation:tutpulse 1.2s ease-in-out infinite}
+  @keyframes tutpulse{0%,100%{outline-color:var(--cyan)}50%{outline-color:var(--safety)}}
+  .overlay.tutclear{z-index:63}
+
   @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
 </style>
 </head>
 <body>
+
+<div id="tutDim"></div>
+<button class="ghost tutskip hidden" id="btnTutSkip">✕ スキップ</button>
 
 <button class="paneltoggle left" id="btnToggleCards" title="カード一覧の表示切替">🃏 カード</button>
 <button class="paneltoggle right" id="btnToggleRules" title="ルール説明の表示切替">📖 ルール</button>
@@ -275,6 +292,7 @@
       <button class="ghost" id="btnJoin" style="flex:0 0 auto">参加</button>
     </div>
     <button class="ghost" id="btnSolo">🤖 ひとりで遊ぶ（CPU対戦）</button>
+    <button class="ghost" id="btnTutorial">📖 チュートリアル</button>
     <button class="ghost" id="btnDeckEdit">🛠 デッキ編集</button>
     <button class="ghost" id="btnRanking">🏆 ランキング</button>
     <div class="note" id="activeDeckInfo"></div>
@@ -341,6 +359,11 @@
   <div class="emoterow">
     <div class="msgbar" id="msg">接続中…</div>
     <button class="ghost emotebtn" id="btnEmote" title="エモート">😀</button>
+  </div>
+  <div class="tutbox hidden" id="tutBox">
+    <div class="tutstep" id="tutStepLabel">ステップ 1/10</div>
+    <div id="tutBody"></div>
+    <button class="ghost tutnext hidden" id="tutNext">次へ →</button>
   </div>
   <div class="board" id="mBoard"><span class="empty-hint">家電を設置しよう（最大4台）</span></div>
 
@@ -414,6 +437,15 @@
   <div class="btnrow">
     <button id="btnRetireConfirm">🏳️ リタイアする</button>
     <button class="ghost" id="btnRetireCancel">やめる</button>
+  </div>
+</div>
+
+<div class="overlay tutclear" id="tutClearOverlay">
+  <h2 id="tutClearTitle" style="font-size:1.6rem">🎉 チュートリアルクリア！</h2>
+  <p id="tutClearText">基本操作を覚えました。さっそく対戦してみましょう！</p>
+  <div class="btnrow">
+    <button id="btnTutClearSolo">🤖 ソロで練習する</button>
+    <button class="ghost" id="btnTutClearDeck">🛠 デッキを組む</button>
   </div>
 </div>
 
@@ -1071,6 +1103,7 @@ let lastGameId=-1, lastSeenEventId=-1, ended=false, bgmStarted=false, bgmPinch=f
 let rematchWaiting=false, oppWantsRematch=false;
 let animQueue=Promise.resolve();
 let suppressNextClick=false;
+let tutActive=false, tutStep=0, tutSeenEventId=-1, tutCleared=false;
 
 function openSocket(){
   return new Promise((resolve,reject)=>{
@@ -1126,8 +1159,10 @@ async function connectAndSend(payload){
 }
 function dispatchMsg(m){
   if(m.type==="created"){
-    seat="A";saveSession({code:m.code,token:m.token,seat:"A"});
-    if(!m.solo){$("menuBox").classList.add("hidden");$("waitBox").classList.remove("hidden");$("codeView").textContent=m.code;}
+    seat="A";
+    if(m.tutorial){ tutActive=true; tutStep=0; tutSeenEventId=-1; tutCleared=false; }
+    else saveSession({code:m.code,token:m.token,seat:"A"});
+    if(!m.solo && !m.tutorial){$("menuBox").classList.add("hidden");$("waitBox").classList.remove("hidden");$("codeView").textContent=m.code;}
   }
   else if(m.type==="joined"){seat="B";saveSession({code:m.code,token:m.token,seat:"B"});$("lobbyErr").textContent="接続完了！対戦開始…";}
   else if(m.type==="error"){$("lobbyErr").textContent=m.msg;}
@@ -1191,6 +1226,11 @@ function startSolo(difficulty){
   myName=($("nameInput").value.trim()||"でんこう⚡");
   connectAndSend({type:"solo",name:myName,deck:getActiveDeckIds(),difficulty,playerId});
 }
+$("btnTutorial").onclick=()=>{
+  Snd.unlock();
+  myName=($("nameInput").value.trim()||"でんこう⚡");
+  connectAndSend({type:"tutorial",name:myName});
+};
 $("btnDiffEasy").onclick=()=>startSolo("easy");
 $("btnDiffNormal").onclick=()=>startSolo("normal");
 $("btnDiffHard").onclick=()=>startSolo("hard");
@@ -1222,6 +1262,10 @@ function commitSnap(newSnap){
   msg(snap.msg);
   $("log").innerHTML=(snap.log||[]).map(t=>`<div>${t}</div>`).join("");
   updateBgmPinch();
+  if(tutActive && snap.tutorial){
+    const ev=snap.event;
+    if(ev && ev.id>tutSeenEventId){ tutSeenEventId=ev.id; tutTryAdvanceEvent(ev); }
+  }
   render();
 }
 /* 自リーダーのHPに応じてバトルBGM／ピンチBGMを切り替える（決着後は切り替えない） */
@@ -1310,9 +1354,148 @@ function playEvent(ev,prevSnap){
   });
 }
 
+/* ============ チュートリアルガイド ============
+   各ステップは「現在のsnapに対して、どのhand/myUnit/enemyUnit/leader/endが許可されるか」を
+   返すinteract(snap)関数を持つ。同じ関数をdoActionのゲーティングとハイライト表示の両方で
+   使い回すことで、許可された操作以外は常に無効化される。
+   advance(ev)＝新規イベントで進む条件、advanceState(snap)＝状態だけで進む条件（毎tick判定・
+   既に満たされていれば表示すらせず自動的に次へカスケードする＝手札事故等の想定外状態でも
+   ステップが自然に飛ばされる）。 */
+function handIdx(s,cid){ const i=s.me.hand.findIndex(c=>c.id===cid); return i>=0?i:null; }
+function affordableHandIdx(s,cid){ const i=s.me.hand.findIndex(c=>c.id===cid); return (i>=0 && s.me.hand[i].c<=s.me.w)?i:null; }
+function oppIdx(s,pred){ const i=s.opp.board.findIndex(pred); return i>=0?i:null; }
+function readyMyUnitIdx(s){ const i=s.me.board.findIndex(u=>u.canAtk); return i>=0?i:null; }
+function firstPlayableFollowerIdx(s){ const i=s.me.hand.findIndex(c=>c.t==="f"&&c.c<=s.me.w&&s.me.board.length<BOARD_MAX); return i>=0?i:null; }
+
+const TUT_STEPS=[
+  { display:1, body:()=>"ようこそ！「ワットでドカン！」のチュートリアルです。相手のリーダー体力（❤）を0にすれば勝利です。",
+    interact:()=>({}), showNext:true },
+  { display:2, body:()=>"画面下のオーブ（⚡）が「電力」です。カードのコスト（W）以下の電力があるときだけプレイできます。毎ターン電力上限が+100Wされます。",
+    interact:()=>({}), showNext:true },
+  { display:3, body:()=>"手札の「LED電球」をタップして設置してみよう！",
+    interact:s=>({hand:handIdx(s,"led")}),
+    advance:ev=>ev.type==="play" && ev.cardName==="LED電球" },
+  { display:4, body:()=>"LED電球は設置時に1枚ドローする効果があります。手札が増えました！",
+    interact:()=>({}), showNext:true },
+  { display:4, body:()=>"ターンを終了してみよう。",
+    interact:()=>({end:true}),
+    advance:ev=>ev.type==="turn" && ev.seat==="B" },
+  { display:5, body:s=>s.opp.board.some(u=>u.cid==="fan")?"相手が扇風機を設置しました！":"相手（CPU）のターンです。何をするか見てみよう…",
+    interact:s=>({end:s.yourTurn}),
+    advanceState:s=>s.yourTurn && s.opp.board.some(u=>u.cid==="fan") },
+  { display:6, body:()=>"自分のユニット→相手のユニットの順にタップして攻撃してみよう！",
+    interact:s=>({myUnit:readyMyUnitIdx(s), enemyUnit:oppIdx(s,u=>u.cid==="fan")}),
+    advance:ev=>ev.type==="attack" && !ev.targetLeader },
+  { display:7, body:()=>"相手のターンです。しばらく待ってみよう…",
+    interact:s=>({end:s.yourTurn}),
+    advanceState:s=>s.opp.board.some(u=>u.kw==="守護") },
+  { display:7, body:()=>"相手が🛡守護を設置しました！守護のいるあいだは、そのユニットを先に倒さないと他は攻撃できません。",
+    interact:()=>({}), showNext:true },
+  { display:8, body:()=>"手札の「ショート」を守護の相手に使ってみよう！（カード→対象の順にタップ）",
+    interact:s=>({hand:handIdx(s,"short"), enemyUnit:oppIdx(s,u=>u.kw==="守護")}),
+    advance:ev=>ev.type==="spell" && ev.cardName==="ショート" },
+  { display:9, body:s=>affordableHandIdx(s,"fridge")!=null?"手札の家電を設置して盤面を整えよう。":"電力が足りません。ターンを終了して待とう。",
+    interact:s=>{ const idx=firstPlayableFollowerIdx(s); return idx!=null?{hand:idx}:{end:true}; },
+    advanceState:s=>s.me.board.length>0 },
+  { display:9, body:()=>"進化にはEP（進化ポイント）が必要です。ターンを終了して待とう。",
+    interact:()=>({end:true}),
+    advanceState:s=>s.me.canEvolve },
+  { display:9, body:()=>"進化ボタンで家電を強化できます。自分のユニットをタップして進化させてみよう！",
+    interact:()=>({myUnit:0, evolve:0}),
+    advance:ev=>ev.type==="evolve" },
+  { display:10, body:()=>"進化した家電でリーダーを攻撃して勝利しよう！（複数ターンかかることもあります）",
+    interact:s=>({myUnit:readyMyUnitIdx(s), leader:true, end:true}) },
+];
+
+function tutCurInteract(){
+  const step=TUT_STEPS[tutStep]; if(!step||!snap)return {};
+  try{ return step.interact(snap)||{}; }catch(e){ return {}; }
+}
+function tutActionAllowed(act){
+  const it=tutCurInteract();
+  if(act.a==="play"){
+    if(it.hand==null||it.hand!==act.hand)return false;
+    if(act.ti!==undefined)return it.enemyUnit!=null && it.enemyUnit===act.ti;
+    return true;
+  }
+  if(act.a==="attack"){
+    if(it.myUnit==null||it.myUnit!==act.i)return false;
+    if(act.target==="leader")return !!it.leader;
+    return it.enemyUnit!=null && it.enemyUnit===act.ti;
+  }
+  if(act.a==="evolve")return it.evolve!=null && it.evolve===act.i;
+  if(act.a==="end")return !!it.end;
+  return false;
+}
+function tutTryAdvanceState(){
+  let guard=0;
+  while(guard++<10){
+    const step=TUT_STEPS[tutStep]; if(!step)break;
+    if(step.advanceState && snap && step.advanceState(snap)){ tutStep++; continue; }
+    break;
+  }
+}
+function tutTryAdvanceEvent(ev){
+  const step=TUT_STEPS[tutStep];
+  if(step && step.advance){
+    try{ if(step.advance(ev))tutStep++; }catch(e){}
+  }
+  tutTryAdvanceState();
+}
+function tutClearHighlights(){
+  document.querySelectorAll(".tut-target").forEach(el=>el.classList.remove("tut-target"));
+}
+function tutRenderGuide(){
+  tutTryAdvanceState();
+  const step=TUT_STEPS[tutStep];
+  if(!step){ return; }
+  $("tutDim").classList.add("show");
+  $("btnTutSkip").classList.remove("hidden");
+  $("tutBox").classList.remove("hidden");
+  $("tutStepLabel").textContent=`ステップ ${step.display}/10`;
+  let body=step.body; try{ body=typeof step.body==="function"?step.body(snap):step.body; }catch(e){ body=""; }
+  $("tutBody").textContent=body;
+  $("tutNext").classList.toggle("hidden",!step.showNext);
+
+  tutClearHighlights();
+  const it=tutCurInteract();
+  if(it.hand!=null){ const el=document.querySelectorAll("#hand .card")[it.hand]; if(el)el.classList.add("tut-target"); }
+  if(it.myUnit!=null){ const el=document.querySelectorAll("#mBoard .unit")[it.myUnit]; if(el)el.classList.add("tut-target"); }
+  if(it.enemyUnit!=null){ const el=document.querySelectorAll("#oBoard .unit")[it.enemyUnit]; if(el)el.classList.add("tut-target"); }
+  if(it.end){ $("btnEnd").classList.add("tut-target"); }
+  if(it.leader){ $("oLeader").classList.add("tut-target"); }
+}
+$("tutNext").onclick=()=>{
+  tutStep++;
+  tutTryAdvanceState();
+  render();
+};
+$("btnTutSkip").onclick=()=>{
+  clearSession();
+  location.reload();
+};
+function tutShowClear(){
+  tutCleared=true;
+  const win=snap && snap.result==="win";
+  $("tutClearTitle").textContent=win?"🎉 チュートリアルクリア！":"チュートリアル終了";
+  $("tutClearText").textContent=win?"基本操作を覚えました。さっそく対戦してみましょう！":"お疲れさまでした。";
+  $("tutDim").classList.remove("show");
+  $("btnTutSkip").classList.add("hidden");
+  $("tutBox").classList.add("hidden");
+  tutClearHighlights();
+  $("tutClearOverlay").classList.add("show");
+}
+function tutClearGoto(action){
+  try{ sessionStorage.setItem("wattdokan_posttutorial",action); }catch(e){}
+  clearSession(); location.reload();
+}
+$("btnTutClearSolo").onclick=()=>tutClearGoto("solo");
+$("btnTutClearDeck").onclick=()=>tutClearGoto("deck");
+
 /* ============ 操作 ============ */
 function doAction(act){
   if(!ws||ws.readyState!==WebSocket.OPEN)return; // 再接続中の操作は無視
+  if(tutActive && !tutActionAllowed(act))return; // チュートリアル中は指示された操作以外を無効化
   if(act.a==="play")Snd.place();
   if(act.a==="attack")Snd.attack();
   if(act.a==="evolve")Snd.evolve();
@@ -1591,6 +1774,10 @@ function render(){
   $("btnEnd").disabled=!snap.yourTurn;
   $("btnRetire").disabled=snap.phase==="over";
 
+  $("btnRetire").classList.toggle("hidden",!!snap.tutorial);
+  $("btnEmote").classList.toggle("hidden",!!snap.tutorial);
+  if(snap.tutorial && tutActive && snap.phase!=="over") tutRenderGuide();
+
   updateResultOverlay();
 }
 setInterval(()=>{
@@ -1603,6 +1790,7 @@ setInterval(()=>{
 function updateResultOverlay(){
   if(!snap)return;
   if(snap.phase==="over"){
+    if(snap.tutorial){ if(!tutCleared)tutShowClear(); return; }
     if(!ended){
       ended=true; snap.result==="win"?Snd.win():Snd.lose();
       if(snap.result==="win"&&!playerId)openRegisterModal(null);
@@ -1628,6 +1816,14 @@ function showResult(win,text){
   $("btnRematch").classList.toggle("hidden",win===null);
   $("overlay").classList.add("show");
 }
+
+/* ---- チュートリアルクリア画面からのボタンで自動的にロビーの続きを開く ---- */
+(function handlePostTutorial(){
+  let action=null;
+  try{ action=sessionStorage.getItem("wattdokan_posttutorial"); sessionStorage.removeItem("wattdokan_posttutorial"); }catch(e){}
+  if(action==="solo") $("btnSolo").click();
+  else if(action==="deck") $("btnDeckEdit").click();
+})();
 </script>
 </body>
 </html>

@@ -96,7 +96,7 @@ function validPid(pid) {
    「マリガン完了前の退出は記録しない」は切断タイムアウト側の呼び出し元で判定済み。 */
 function recordMatchResult(room, winnerSeat) {
   const G = room.G;
-  if (!G || G.statsRecorded) return;
+  if (!G || G.statsRecorded || room.tutorial) return;
   G.statsRecorded = true;
   const seasonKey = currentSeasonKey();
   if (room.cpu) {
@@ -270,9 +270,10 @@ function normDifficulty(d) {
 }
 
 /* ==================== ゲームエンジン ==================== */
-function mkSide(deckIds) {
+function mkSide(deckIds, noShuffle) {
+  const cards = deckIds.map(id => ({ ...POOL_BY_ID.get(id) }));
   return { hp:20, maxW:0, w:0, ep:0, tn:0, epGiven:false, fatigue:0, mulliganDone:false,
-    deck: shuffle(deckIds.map(id => ({ ...POOL_BY_ID.get(id) }))), hand:[], board:[] };
+    deck: noShuffle ? cards : shuffle(cards), hand:[], board:[] };
 }
 
 function setMsg(G, text) {
@@ -407,6 +408,48 @@ function newGame(room, nameA, nameB) {
   broadcast(room);
 }
 
+/* ==================== チュートリアル専用ルーム ====================
+ * 通常ルールのまま、デッキを固定順（シャッフルなし）にして展開を決定論的にする。
+ * プレイヤーの初手3枚が「LED電球・冷蔵庫・ショート」になるよう、drawNは配列末尾
+ * からpopするため、末尾に ["short","fridge","led"] の順で並べている（先頭ほど後で引く）。
+ */
+const TUTORIAL_PLAYER_DECK = [
+  "charger","fan","tester","drill","washer","microwave","dryer","aircon","cubicle",
+  "transformer","ground","wiring","solar","breaker","surge","fuse","capacitor",
+  "short","fridge","led",
+];
+/* CPU側は「fan」「fridge」さえ初手（先頭4枚扱い＝末尾4要素）に含まれていれば良い。
+   台本はCPU自身の手札をカードidで検索して実行するため、並び順自体は問わない。 */
+const TUTORIAL_CPU_DECK = [
+  "led","charger","tester","drill","washer","microwave","dryer","aircon","cubicle",
+  "transformer","ground","wiring","solar","breaker","surge","fuse","capacitor","generator",
+  "fridge","fan",
+];
+function startTutorial(room) {
+  room.epoch = (room.epoch||0) + 1;
+  clearOverTimer(room);
+  const G = {
+    S: { A: mkSide(TUTORIAL_PLAYER_DECK, true), B: mkSide(TUTORIAL_CPU_DECK, true) },
+    active: "A", msg: "", logList: [],
+    phase: "battle", result: null,
+    names: { A: room.seats.A.name, B: room.seats.B.name },
+    nextId: 0, eventSeq: 0, lastEvent: null, deadline: null,
+    statsRecorded: true, // チュートリアルは戦績を一切記録しない（recordMatchResultも別途room.tutorialでガード）
+    titles: { A: null, B: null }, devTitles: { A: null, B: null },
+  };
+  G.S.A.mulliganDone = true; G.S.B.mulliganDone = true; // マリガンフェイズはスキップ
+  G.S.B.hp = 10; // 短時間で決着させるためCPUのHPは10
+  room.G = G;
+  room.rematch = { A:false, B:false };
+  drawN(G, "A", 3); drawN(G, "B", 4);
+  room.cpuBusy = false;
+  const before = snapshotHP(G);
+  startTurn(room, "A"); // 通常のターン開始処理（電力付与・ターン開始ドロー）をそのまま流用
+  const { diffs, deaths } = diffHP(before, G);
+  pushEvent(G, { type:"turn", seat:"A", diffs, deaths });
+  broadcast(room);
+}
+
 function applyMulligan(room, seatX, idxRaw) {
   const G = room.G;
   if (!G || G.phase !== "mulligan") return;
@@ -531,13 +574,13 @@ function applyAction(room, seatX, act) {
   if (evType) pushEvent(G, { type:evType, diffs, deaths, lastwords, ...evMeta });
   broadcast(room);
 
-  if (room.cpu && seatX === "A" && G.S.B.board.length < cpuBoardBefore) {
+  if (room.cpu && !room.tutorial && seatX === "A" && G.S.B.board.length < cpuBoardBefore) {
     triggerCpuEmote(room, 5, 0.3); // 被除去：ぐぬぬ😖
   }
 
   if (room.cpu && G.phase === "battle" && G.active === "B" && !G.result && !room.cpuBusy) {
     room.cpuBusy = true;
-    scheduleCpuTurn(room);
+    if (room.tutorial) scheduleTutorialCpuTurn(room); else scheduleCpuTurn(room);
   }
 }
 
@@ -565,6 +608,7 @@ function buildSnap(room, forSeat) {
     event: G.lastEvent,
     result: G.result ? (G.result === forSeat ? "win" : "lose") : null,
     oppConnected: !!(oppObj && oppObj.connected),
+    tutorial: !!room.tutorial,
   };
 }
 function broadcast(room) {
@@ -591,6 +635,7 @@ function armOverTimer(room) {
 }
 function armTurnTimer(room) {
   clearTurnTimer(room);
+  if (room.tutorial) { room.G.deadline = null; return; } // チュートリアルはターンタイマー無効
   const G = room.G, epoch = room.epoch;
   G.deadline = Date.now() + TURN_MS;
   room.turnTimer = setTimeout(() => {
@@ -739,6 +784,30 @@ function planLethal(boardUnits, E) {
   return steps;
 }
 
+/* ---- チュートリアル専用CPU台本：T1何もしない／T2扇風機／T3冷蔵庫／T4以降ターン終了のみ ---- */
+function scheduleTutorialCpuTurn(room) {
+  const epoch = room.epoch;
+  function step() {
+    if (room.epoch!==epoch || !room.G || room.G.result || room.G.active!=="B") { room.cpuBusy=false; return; }
+    const S = room.G.S.B;
+    const cardId = S.tn === 2 ? "fan" : S.tn === 3 ? "fridge" : null;
+    if (cardId) {
+      const idx = S.hand.findIndex(c => c.id === cardId);
+      if (idx >= 0 && S.hand[idx].c <= S.w && S.board.length < BOARD_MAX) {
+        applyAction(room, "B", { a:"play", hand:idx });
+        setTimeout(finish, 700);
+        return;
+      }
+    }
+    finish();
+  }
+  function finish() {
+    if (room.epoch===epoch && room.G && !room.G.result) applyAction(room, "B", { a:"end" });
+    room.cpuBusy = false;
+  }
+  setTimeout(step, 900);
+}
+
 function scheduleCpuTurn(room) {
   const epoch = room.epoch;
   const difficulty = normDifficulty(room.difficulty);
@@ -876,6 +945,19 @@ wss.on("connection", (ws) => {
       newGame(room, room.seats.A.name, room.seats.B.name);
     }
 
+    else if (m.type === "tutorial") {
+      const code = genCode();
+      const room = makeRoom(code, true);
+      room.tutorial = true;
+      const token = genToken();
+      room.seats.A = { ws, name: cleanName(m.name) || "でんこう⚡", token, connected:true, deck: TUTORIAL_PLAYER_DECK.slice(), playerId: null };
+      room.seats.B = { ws:null, name:"CPU📖チュートリアル", token:null, connected:true, isCpu:true, deck: TUTORIAL_CPU_DECK.slice() };
+      rooms.set(code, room);
+      ws.roomCode = code; ws.seat = "A";
+      send(ws, { type:"created", code, token, tutorial:true });
+      startTutorial(room);
+    }
+
     else if (m.type === "resume") {
       const room = rooms.get(String(m.code||"").trim());
       if (!room) { send(ws, { type:"resumeFail" }); return; }
@@ -898,7 +980,7 @@ wss.on("connection", (ws) => {
       const room = rooms.get(ws.roomCode); if (!room || !room.G) return;
       const seatX = ws.seat; if (!seatX) return;
       const act = m.act || {};
-      if (act.a === "retire") applyRetire(room, seatX);
+      if (act.a === "retire") { if (!room.tutorial) applyRetire(room, seatX); }
       else if (room.G.phase === "mulligan" && act.a === "mulligan") applyMulligan(room, seatX, act.idx);
       else if (room.G.phase === "battle") applyAction(room, seatX, act);
     }
@@ -909,7 +991,7 @@ wss.on("connection", (ws) => {
     }
 
     else if (m.type === "emote") {
-      const room = rooms.get(ws.roomCode); if (!room || !room.G) return;
+      const room = rooms.get(ws.roomCode); if (!room || !room.G || room.tutorial) return;
       const seatX = ws.seat; if (!seatX) return;
       if (!Number.isInteger(m.id) || m.id < 0 || m.id >= EMOTE_LIST.length) return;
       emitEmote(room, seatX, m.id);
