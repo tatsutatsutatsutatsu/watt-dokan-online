@@ -931,6 +931,15 @@ wss.on("connection", (ws) => {
       newGame(room, room.seats.A.name, room.seats.B.name);
     }
 
+    else if (m.type === "cancelRoom") {
+      const room = rooms.get(ws.roomCode); if (!room) return;
+      // ゲスト参加とキャンセルがほぼ同時に届いた場合、メッセージ処理は単一スレッドで
+      // 順番に行われるため、joinが先に処理済み（room.seats.Bが埋まっている）なら
+      // キャンセルは無視し、そのまま対戦を続行させる（サーバー側の状態が正）。
+      if (ws.seat !== "A" || room.seats.B || room.G) return;
+      rooms.delete(room.code);
+    }
+
     else if (m.type === "solo") {
       const code = genCode();
       const room = makeRoom(code, true);
