@@ -24,6 +24,11 @@ const RECONNECT_GRACE_MS = 120000;  // 再接続猶予：2分
  */
 const STATS_FILE = path.join(__dirname, "stats.json");
 const RANK_TITLES = ["⚡電力王", "🔋主任技術者", "🔌電工マイスター"]; // TOP3称号（両タブ共通の呼称）
+const DEV_PLAYER_ID = process.env.DEV_PLAYER_ID || null; // 開発者専用称号。未設定なら何も起きない
+const DEV_TITLE = "ゲームマスター🎩";
+function devTitleForPlayer(pid) {
+  return (DEV_PLAYER_ID && pid && pid === DEV_PLAYER_ID) ? DEV_TITLE : null;
+}
 let stats = { players: {}, seasons: {} };
 function loadStats() {
   try {
@@ -73,6 +78,7 @@ function computeTop(seasonKey, kind, difficulty, limit) {
     pid, name: (stats.players[pid] || {}).name || "???",
     win: rec.win, loss: rec.loss, games: rec.games,
     winRate: rec.games ? rec.win / rec.games : 0,
+    dev: !!devTitleForPlayer(pid),
   }));
   arr.sort((a, b) => b.win - a.win || b.winRate - a.winRate || b.games - a.games);
   return arr.slice(0, limit);
@@ -390,6 +396,7 @@ function newGame(room, nameA, nameB) {
     nextId: 0, eventSeq: 0, lastEvent: null, deadline: null,
     statsRecorded: false,
     titles: room.cpu ? { A: null, B: null } : { A: pvpTitleForPlayer(room.seats.A.playerId), B: pvpTitleForPlayer(room.seats.B.playerId) },
+    devTitles: { A: devTitleForPlayer(room.seats.A.playerId), B: devTitleForPlayer(room.seats.B.playerId) },
   };
   room.G = G;
   room.rematch = { A:false, B:false };
@@ -552,6 +559,7 @@ function buildSnap(room, forSeat) {
     opp: { ...side(op, oppSeatKey), handN: op.hand.length, mulliganDone: !!op.mulliganDone },
     oppName: G.names[oppSeatKey], myName: G.names[forSeat],
     myTitle: (G.titles && G.titles[forSeat]) || null, oppTitle: (G.titles && G.titles[oppSeatKey]) || null,
+    myDevTitle: (G.devTitles && G.devTitles[forSeat]) || null, oppDevTitle: (G.devTitles && G.devTitles[oppSeatKey]) || null,
     yourTurn: G.phase === "battle" && G.active === forSeat && !G.result,
     msg: G.msg, log: G.logList,
     event: G.lastEvent,
